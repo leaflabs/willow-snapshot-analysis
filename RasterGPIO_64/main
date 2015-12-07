@@ -1,0 +1,135 @@
+#!/usr/bin/python
+
+from PyQt4 import QtCore, QtGui
+import numpy as np
+import sys, os
+
+import matplotlib
+from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
+from matplotlib.figure import Figure
+
+from WillowDataset import WillowDataset
+
+#### config
+
+#CHAN_OFFSET = 928 # using miso/mosi 8, chips 2 and 3
+CHAN_OFFSET = 0
+PROBEMAP_FILE = 'probeMap_64_black_2015.npy'
+
+PROBEMAP = np.load(PROBEMAP_FILE)
+
+COLORCYCLE = ['r', 'g', 'b', 'y']
+
+####
+
+class RasterGPIO(QtGui.QWidget):
+
+    def __init__(self, dataset, column):
+        QtGui.QWidget.__init__(self)
+        self.dataset = dataset
+        self.column = column
+
+        if not self.dataset.isImported:
+            self.dataset.importData()
+
+        self.willowChanList = PROBEMAP[:, self.column] + CHAN_OFFSET
+
+        print 'filtering...'
+        dataset.filterData(channelList=self.willowChanList)
+        print 'spikedetecting...'
+        dataset.detectSpikes(channelList=self.willowChanList, thresh='auto')
+
+        self.mplPanel = self.createMplPanel()
+        self.toolbar = NavigationToolbar(self.canvas, self)
+
+        self.layout = QtGui.QVBoxLayout()
+        self.layout.addWidget(self.mplPanel)
+        self.layout.addWidget(self.toolbar)
+        self.setLayout(self.layout)
+
+        self.plotGPIO()
+        self.plotRaster()
+        self.plotFiltered()
+        self.canvas.draw()
+
+        self.isFiltered = True
+
+        self.setWindowTitle('Raster + GPIO, Column %d' % self.column)
+        self.setWindowIcon(QtGui.QIcon('../img/round_logo_60x60.png'))
+
+    def on_click(self, event):
+        if event.button == 2: # middle-click
+            self.axes.clear()
+            self.plotGPIO()
+            self.plotRaster()
+            if self.isFiltered:
+                self.plotRaw()
+                self.isFiltered = False
+            else:
+                self.plotFiltered()
+                self.isFiltered = True
+            self.axes.set_ylim([0,100])
+            self.axes.get_yaxis().set_visible(False)
+            self.axes.set_xlabel('Time (ms)')
+            self.canvas.draw()
+
+    def createMplPanel(self):
+        self.fig = Figure()
+        self.canvas = FigureCanvas(self.fig)
+        self.canvas.setParent(self)
+        self.canvas.mpl_connect('button_press_event', self.on_click)
+
+        self.axes = self.fig.add_subplot(111)
+        self.axes.set_axis_bgcolor('k')
+        self.axes.set_title('%s, Column %d' %
+            (os.path.basename(self.dataset.filename), self.column))
+        self.axes.set_ylim([0,100])
+        self.axes.get_yaxis().set_visible(False)
+        self.axes.set_xlabel('Time (ms)')
+
+        mplPanel = QtGui.QWidget()
+        layout = QtGui.QVBoxLayout()
+        layout.addWidget(self.canvas)
+        mplPanel.setLayout(layout)
+
+        return mplPanel
+
+    def plotGPIO(self):
+        for i in range(16):
+            self.axes.step(self.dataset.GPIOtimes, self.dataset.GPIO[i,:]*15+80)
+
+    def plotRaster(self):
+        for i,chan in enumerate(self.willowChanList):
+            spikeTimes = self.dataset.spikeTimes[chan]
+            self.axes.vlines(spikeTimes, 40+i, 41+i, color = COLORCYCLE[i%4], linewidth=1.5)
+
+    def plotRaw(self):
+        scale = np.std(self.dataset.data_uv_filtered[self.willowChanList,:])*6
+        for i,chan in enumerate(self.willowChanList):
+            self.axes.plot(self.dataset.time_ms,
+                        self.dataset.data_uv[chan,:]/scale + 5 + float(i),
+                        color = COLORCYCLE[i%4])
+    def plotFiltered(self):
+        scale = np.std(self.dataset.data_uv_filtered[self.willowChanList,:])*6
+        for i,chan in enumerate(self.willowChanList):
+            self.axes.plot(self.dataset.time_ms,
+                        self.dataset.data_uv_filtered[chan,:]/scale + 5 + float(i),
+                        color = COLORCYCLE[i%4])
+
+if __name__=='__main__':
+    if len(sys.argv)<2:
+        print 'Usage:'
+        print ' $ %s <snapshot.h5>' % sys.argv[0]
+        sys.exit()
+    else:
+        filename = sys.argv[1]
+        app = QtGui.QApplication(sys.argv)
+        dataset = WillowDataset(filename, -1) # TODO check for length first
+        dataset.importData()
+        rasterGPIO0 = RasterGPIO(dataset, 0)
+        rasterGPIO0.show()
+        rasterGPIO1 = RasterGPIO(dataset, 1)
+        rasterGPIO1.show()
+        app.exec_()
+    

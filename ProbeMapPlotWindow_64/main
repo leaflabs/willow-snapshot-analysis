@@ -1,0 +1,515 @@
+#!/usr/bin/python
+
+from PyQt4 import QtCore, QtGui
+import os, sys, h5py
+
+import numpy as np
+
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
+from matplotlib.figure import Figure
+
+from SpikeScopeWindow import SpikeScopeWindow
+
+from WillowDataset import WillowDataset
+
+#### config
+
+#CHAN_OFFSET = 928 # using miso/mosi 8, chips 2 and 3
+CHAN_OFFSET = 0
+PROBEMAP_FILE = 'probeMap_64_black_2015.npy'
+
+####
+
+PROBEMAP = np.load(PROBEMAP_FILE)
+
+def probeChanFromSubplotIndex(subplotIndex):
+    # here's some mangling that's necessary b.c. matplotlib plots subplots
+    #   in column-major order, for some reason
+    subplotRow = subplotIndex // 2
+    subplotCol = subplotIndex % 2
+    justinRow = 31 - subplotRow # "row 0/1 is near the tip (bottom)" -justin
+    justinCol = subplotCol
+    probeChan = PROBEMAP[justinRow, justinCol]
+    return probeChan
+
+def willowChanFromSubplotIndex(subplotIndex):
+    return CHAN_OFFSET + probeChanFromSubplotIndex(subplotIndex)
+
+class ControlPanel(QtGui.QWidget):
+
+    zoomUpdated = QtCore.pyqtSignal(dict)
+    filterSelected = QtCore.pyqtSignal(bool, dict)
+    spikeDetectSelected = QtCore.pyqtSignal(bool, dict)
+
+    def __init__(self, dataset):
+        QtGui.QWidget.__init__(self)
+        self.dataset = dataset
+
+        self.createPostGroup()
+        self.createZoomGroup()
+
+        self.layout = QtGui.QHBoxLayout()
+        self.layout.addWidget(self.zoomGroup)
+        self.layout.addWidget(self.postGroup)
+        self.setLayout(self.layout)
+
+        self.setMaximumHeight(220)
+
+        self.spikeScopeWindows = []
+
+    def createZoomGroup(self):
+
+        self.zoomGroup = QtGui.QGroupBox('Zoom Control')
+
+        xmin, xmax, ymin, ymax = self.dataset.limits
+        ####
+        self.autoButton = QtGui.QRadioButton('Auto')
+        self.autoButton.setChecked(True)
+        self.autoButton.toggled.connect(self.switchZoomModes)
+        self.manualButton = QtGui.QRadioButton('Manual')
+        self.manualButton.toggled.connect(self.switchZoomModes)
+        self.xminLine = QtGui.QLineEdit(str(xmin))
+        self.xmaxLine = QtGui.QLineEdit(str(xmax))
+        self.yminLine = QtGui.QLineEdit('-6000.0')
+        self.ymaxLine = QtGui.QLineEdit('6000.0')
+        self.refreshButton = QtGui.QPushButton('Refresh')
+        self.refreshButton.clicked.connect(self.handleZoomRefresh)
+        self.defaultButton = QtGui.QPushButton('Default')
+        self.defaultButton.clicked.connect(self.handleZoomDefault)
+        self.switchZoomModes() # initialize
+        ###
+        modes = QtGui.QWidget()
+        modesLayout = QtGui.QHBoxLayout()
+        modesLayout.addWidget(self.autoButton)
+        modesLayout.addWidget(self.manualButton)
+        modes.setLayout(modesLayout)
+        ###
+        grid = QtGui.QWidget()
+        gridLayout = QtGui.QGridLayout()
+        gridLayout.addWidget(QtGui.QLabel('X-Range (ms):'), 0,0)
+        gridLayout.addWidget(self.xminLine, 0,1)
+        gridLayout.addWidget(self.xmaxLine, 0,2)
+        gridLayout.addWidget(QtGui.QLabel('Y-Range (uv):'), 1,0)
+        gridLayout.addWidget(self.yminLine, 1,1)
+        gridLayout.addWidget(self.ymaxLine, 1,2)
+        grid.setLayout(gridLayout)
+        ###
+        buttons = QtGui.QWidget()
+        buttonLayout = QtGui.QHBoxLayout()
+        buttonLayout.addWidget(self.refreshButton)
+        buttonLayout.addWidget(self.defaultButton)
+        buttons.setLayout(buttonLayout)
+        ###
+        layout = QtGui.QVBoxLayout()
+        layout.addWidget(modes)
+        layout.addWidget(grid)
+        layout.addWidget(buttons)
+
+        self.zoomGroup.setLayout(layout)
+        self.zoomGroup.setMaximumWidth(300)
+
+    def switchZoomModes(self):
+        if self.autoButton.isChecked():
+            self.autoMode = True
+            for widg in [self.xminLine, self.xmaxLine, self.yminLine, self.ymaxLine,
+                            self.refreshButton, self.defaultButton]:
+                widg.setEnabled(False)
+            self.handleZoomDefault()
+        elif self.manualButton.isChecked():
+            self.autoMode = False
+            for widg in [self.xminLine, self.xmaxLine, self.yminLine, self.ymaxLine,
+                            self.refreshButton, self.defaultButton]:
+                widg.setEnabled(True)
+
+    def setZoom(self, xmin, xmax, ymin, ymax):
+        self.xminLine.setText(str(xmin))
+        self.xmaxLine.setText(str(xmax))
+        self.yminLine.setText(str(ymin))
+        self.ymaxLine.setText(str(ymax))
+
+    def handleZoomRefresh(self):
+        self.zoomUpdated.emit(self.getZoomParams())
+
+    def handleZoomDefault(self):
+        defaultZoomParams = {}
+        defaultZoomParams['autoMode'] = True
+        defaultZoomParams['filteredDisplayed'] = self.filterCheckbox.isChecked()
+        defaultZoomParams['xrange'] = [0,0] # don't care; automode
+        defaultZoomParams['yrange'] = [0,0] # don't care; automode
+        self.zoomUpdated.emit(defaultZoomParams)
+        # after plotpanel calculates autozoom parameters, it sends a signal back,
+        # which gets handled by ControlPanel.setZoom()
+
+    def createOtherGroup(self):
+        self.otherGroup = QtGui.QGroupBox('Other Plot Windows')
+        self.regPlotButton = QtGui.QPushButton('Regular Plot Window')
+        self.regPlotButton.clicked.connect(self.launchRegPlot)
+        self.waterfallButton = QtGui.QPushButton('Waterfall Plot')
+        self.waterfallButton.clicked.connect(self.launchWaterfall)
+        self.spikeScopeButton = QtGui.QPushButton('Spike Scope')
+        self.spikeScopeButton.clicked.connect(self.launchSpikeScope)
+
+        layout = QtGui.QVBoxLayout()
+        layout.addWidget(self.regPlotButton)
+        layout.addWidget(self.waterfallButton)
+        layout.addWidget(self.spikeScopeButton)
+        self.otherGroup.setLayout(layout)
+        self.otherGroup.setMaximumWidth(220)
+
+    def createPostGroup(self):
+        self.postGroup = QtGui.QGroupBox('Post-Processing')
+
+        #self.filterButton = QtGui.QPushButton('Filter Data')
+        #self.filterButton.clicked.connect(self.filterData)
+        self.filterCheckbox = QtGui.QCheckBox('Display Filtered Data')
+        self.filterCheckbox.setChecked(True)
+        #self.filterCheckbox.setDisabled(True)
+        self.filterCheckbox.stateChanged.connect(self.displayFiltered)
+
+        #self.spikeDetectButton = QtGui.QPushButton('Detect Spikes')
+        #self.spikeDetectButton.clicked.connect(self.detectSpikes)
+        self.spikeDetectCheckbox = QtGui.QCheckBox('Display Spikes')
+        #self.spikeDetectCheckbox.setDisabled(True)
+        self.spikeDetectCheckbox.stateChanged.connect(self.displaySpikes)
+
+        layout = QtGui.QVBoxLayout()
+        """
+        layout.addWidget(self.filterButton, 0,0)
+        layout.addWidget(self.filterCheckbox, 0,1)
+        layout.addWidget(self.spikeDetectButton, 1,0)
+        layout.addWidget(self.spikeDetectCheckbox, 1,1)
+        """
+        layout.addWidget(self.filterCheckbox)
+        layout.addWidget(self.spikeDetectCheckbox)
+        self.postGroup.setLayout(layout)
+        self.postGroup.setMaximumWidth(280)
+
+    def launchRegPlot(self):
+        pass
+
+    def launchWaterfall(self):
+        pass
+
+    def launchSpikeScope(self):
+        chanStr, ok = QtGui.QInputDialog.getText(self, 'SpikeScope Channel Selection',
+                                                'Channel #')
+        if ok:
+            spikeScopeWindow = SpikeScopeWindow(self.dataset, int(chanStr))
+            self.spikeScopeWindows.append(spikeScopeWindow)
+            spikeScopeWindow.show()
+
+    def filterData(self):
+        if not self.dataset.isFiltered:
+            QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+            # only filter the plotted channels for now
+            self.dataset.filterData(channelList=range(CHAN_OFFSET, CHAN_OFFSET+64))
+            QtGui.QApplication.restoreOverrideCursor()
+        self.filterCheckbox.setDisabled(False)
+
+    def displayFiltered(self):
+        QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        self.filterSelected.emit(self.filterCheckbox.isChecked(), self.getZoomParams())
+        QtGui.QApplication.restoreOverrideCursor()
+
+    def detectSpikes(self):
+        QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        # only spikeDetect the plotted channels for now
+        self.dataset.detectSpikes(channelList=range(CHAN_OFFSET, CHAN_OFFSET+64))
+        QtGui.QApplication.restoreOverrideCursor()
+        self.spikeDetectCheckbox.setDisabled(False)
+
+    def displaySpikes(self):
+        QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        self.spikeDetectSelected.emit(self.spikeDetectCheckbox.isChecked(), self.getZoomParams())
+        QtGui.QApplication.restoreOverrideCursor()
+
+    def getZoomParams(self):
+        zoomParams = {}
+        zoomParams['autoMode'] = self.autoMode
+        zoomParams['filteredDisplayed'] = self.filterCheckbox.isChecked()
+        zoomParams['xrange'] = [float(self.xminLine.text()), float(self.xmaxLine.text())]
+        zoomParams['yrange'] = [float(self.yminLine.text()), float(self.ymaxLine.text())]
+        return zoomParams
+
+
+class ScrollZoomPanel(QtGui.QScrollArea):
+
+    def __init__(self, widget):
+        QtGui.QScrollArea.__init__(self)
+
+        self.setWidget(widget)
+        self.setAlignment(QtCore.Qt.AlignCenter)
+
+    def wheelEvent(self, event):
+        if event.modifiers() == QtCore.Qt.ControlModifier:
+            self.verticalZoom(event.delta())
+        else:
+            QtGui.QScrollArea.wheelEvent(self, event)
+
+    def resizeEvent(self, event):
+        """
+        Expands the widget to fill the QScrollArea
+        """
+        widget = self.widget()
+        widget.resize(event.size().width(), widget.size().height())
+        #widget.resize(event.size().width(), event.size().height())
+        QtGui.QScrollArea.resizeEvent(self, event)
+        event.accept()
+
+    def verticalZoom(self, delta):
+        """
+        Expands the widget vertically
+        """
+        w = self.widget()
+        curSize = w.size()
+        x,y = curSize.width(), curSize.height()
+        if delta > 0:
+            y *= 1.5
+        elif delta < 0:
+            y /= 1.5
+        QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        w.resize(x, y)
+        QtGui.QApplication.restoreOverrideCursor()
+
+
+class ProbeMapCanvas(FigureCanvas):
+
+    autoZoomCalculated = QtCore.pyqtSignal(int, int, int, int)
+
+    def __init__(self, dataset):
+        self.fig = Figure()
+        FigureCanvas.__init__(self, self.fig)
+
+        self.dataset = dataset
+
+        self.resizeThreshold_axes = 3600   # pixels
+        self.nchannels = 64
+        self.nrows, self.ncols = 32,2
+
+        self.plotFiltered()
+
+        self.resize(self.width(), 3600)
+        self.mpl_connect('button_press_event', self.on_click)
+
+        self.spikeScopeWindows = []
+
+
+    def on_click(self, event):
+        if event.dblclick:
+            try:
+                chan = self.axesToChannelDict[event.inaxes]
+                spikeScopeWindow = SpikeScopeWindow(self.dataset, chan)
+                self.spikeScopeWindows.append(spikeScopeWindow)
+                spikeScopeWindow.show()
+            except KeyError:
+                print 'Axes not found in axesToChannelDict: ', event.inaxes
+
+    def getToolbar(self):
+        return NavigationToolbar(self, None) # parent??
+
+    def plotRaw(self):
+        self.fig.clear()
+        self.axesList = []
+        self.axesToChannelDict = {}
+        for subplotIndex in range(self.nchannels):
+            willowChan = willowChanFromSubplotIndex(subplotIndex)
+            axes = self.fig.add_subplot(self.nrows, self.ncols, subplotIndex+1) # it's also 1-indexed
+            axes.set_axis_bgcolor('k')
+            axes.plot(self.dataset.time_ms, self.dataset.data_uv[willowChan, :], color='#8fdb90')
+            self.axesList.append(axes)
+            self.axesToChannelDict[axes] = willowChan
+            if self.size().height() > 1800:
+                axes.set_title('Channel %d' % willowChan, fontsize=10, fontweight='bold')
+            else:
+                axes.set_title('')
+                axes.get_xaxis().set_visible(False)
+                axes.get_yaxis().set_visible(False)
+        if self.size().height() > 1800:
+            self.fig.subplots_adjust(left=0.05, bottom=0.02, right=0.98, top=0.98, wspace=0.08, hspace=0.4)
+        else:
+            self.fig.subplots_adjust(left=0.05, bottom=0.02, right=0.98, top=0.98, wspace=0.08, hspace=0.2)
+        QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        self.draw()
+        QtGui.QApplication.restoreOverrideCursor()
+
+    def plotFiltered(self):
+        if self.dataset.isFiltered:
+            self.fig.clear()
+            self.axesList = []
+            self.axesToChannelDict = {}
+            for subplotIndex in range(self.nchannels):
+                willowChan = willowChanFromSubplotIndex(subplotIndex)
+                axes = self.fig.add_subplot(self.nrows, self.ncols, subplotIndex+1) # it's also 1-indexed
+                axes.set_axis_bgcolor('k')
+                axes.plot(self.dataset.time_ms, self.dataset.data_uv_filtered[willowChan,:], color='#8fdb90')
+                self.axesList.append(axes)
+                self.axesToChannelDict[axes] = willowChan
+                if self.size().height() > 1800:
+                    axes.set_title('Channel %d' % willowChan, fontsize=10, fontweight='bold')
+                else:
+                    axes.set_title('')
+                    axes.get_xaxis().set_visible(False)
+                    axes.get_yaxis().set_visible(False)
+            if self.size().height() > 1800:
+                self.fig.subplots_adjust(left=0.05, bottom=0.02, right=0.98, top=0.98, wspace=0.08, hspace=0.4)
+            else:
+                self.fig.subplots_adjust(left=0.05, bottom=0.02, right=0.98, top=0.98, wspace=0.08, hspace=0.2)
+            QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+            self.draw()
+            QtGui.QApplication.restoreOverrideCursor()
+        else:
+            print 'ERROR dataset is not filtered'
+
+    def toggleFiltered(self, filtered, zoomParams):
+        if filtered:
+            self.plotFiltered()
+        else:
+            self.plotRaw()
+        self.setZoom(zoomParams)
+
+    def toggleSpikes(self, spikes, zoomParams):
+        if spikes:
+            self.overlaySpikes()
+        else:
+            self.removeSpikes()
+
+    def overlaySpikes(self):
+        QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        self.spikeLines = []
+        for subplotIndex in range(self.nchannels):
+            willowChan = willowChanFromSubplotIndex(subplotIndex)
+            try:
+                if len(self.dataset.spikeIndices[willowChan]) > 0:
+                    axes = self.axesList[subplotIndex]
+                    ylim = axes.get_ylim()
+                    self.spikeLines.append(
+                        axes.vlines(self.dataset.spikeTimes[willowChan],
+                        ylim[0], ylim[1], colors='#9933FF'))
+            except KeyError:
+                pass
+        self.draw()
+        QtGui.QApplication.restoreOverrideCursor()
+
+    def removeSpikes(self):
+        for lines in self.spikeLines:
+            lines.remove()
+        self.draw()
+
+    def resizeEvent(self, event):
+        QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        if (event.oldSize().height() < self.resizeThreshold_axes
+            and event.size().height() >= self.resizeThreshold_axes):
+            for subplotIndex in range(64):
+                willowChan = willowChanFromSubplotIndex(subplotIndex)
+                axes = self.axesList[subplotIndex]
+                axes.set_title('Channel %d' % willowChan, fontsize=10, fontweight='bold')
+                axes.get_xaxis().set_visible(True)
+                axes.get_yaxis().set_visible(True)
+            self.fig.subplots_adjust(left=0.05, bottom=0.02, right=0.98, top=0.98, wspace=0.08, hspace=0.4)
+            self.draw()
+        elif (event.oldSize().height() >= self.resizeThreshold_axes
+            and event.size().height() < self.resizeThreshold_axes):
+            for subplotIndex in range(64):
+                subplotRow = subplotIndex // 2
+                subplotCol = subplotIndex % 2
+                justinRow = 31 - subplotRow # "row 0/1 is near the tip (bottom)" -justin
+                justinCol = subplotCol
+                axes = self.axesList[subplotIndex]
+                axes.set_title('')
+                axes.get_xaxis().set_visible(False)
+                axes.get_yaxis().set_visible(False)
+            self.fig.subplots_adjust(left=0.05, bottom=0.02, right=0.98, top=0.98, wspace=0.08, hspace=0.2)
+            self.draw()
+        event.accept() # doesn't work? event still propagates
+        FigureCanvas.resizeEvent(self, event)
+        QtGui.QApplication.restoreOverrideCursor()
+
+    def setZoom(self, zoomParams):
+        autoMode = zoomParams['autoMode']
+        filteredDisplayed = zoomParams['filteredDisplayed']
+        if autoMode:
+            xmin = self.dataset.timeMin
+            xmax = self.dataset.timeMax
+            if filteredDisplayed:
+                ymin_hard = np.min(self.dataset.data_uv_filtered[CHAN_OFFSET:CHAN_OFFSET+64,:])
+                ymax_hard = np.max(self.dataset.data_uv_filtered[CHAN_OFFSET:CHAN_OFFSET+64,:])
+            else:
+                ymin_hard = np.min(self.dataset.data_uv[CHAN_OFFSET:CHAN_OFFSET+64,:])
+                ymax_hard = np.max(self.dataset.data_uv[CHAN_OFFSET:CHAN_OFFSET+64,:])
+            deltay = ymax_hard - ymin_hard
+            ymin = ymin_hard - deltay//2
+            ymax = ymax_hard + deltay//2
+            self.autoZoomCalculated.emit(xmin, xmax, ymin, ymax)
+        else:
+            xmin, xmax = zoomParams['xrange']
+            ymin, ymax = zoomParams['yrange']
+        for axes in self.axesList:
+            axes.axis([xmin, xmax, ymin, ymax], fontsize=10)
+        self.draw()
+
+    def event(self, event):
+        """
+        This is necessary because FigureCanvas does not pass events up to parent widgets.
+        We detect QWheelEvents and make sure they get passed to the parent (ScrollZoomPanel)
+        by returning False. Other events are handled by FigureCanvas.
+        """
+        if isinstance(event, QtGui.QWheelEvent):
+            return False
+        else:
+            return FigureCanvas.event(self, event)
+
+
+class ProbeMapPlotWindow(QtGui.QWidget):
+
+    def __init__(self, dataset):
+        QtGui.QWidget.__init__(self)
+        self.dataset = dataset
+        self.dataset.filterData(channelList=range(CHAN_OFFSET, CHAN_OFFSET+64))
+        self.dataset.detectSpikes(channelList=range(CHAN_OFFSET, CHAN_OFFSET+64))
+
+        probeMapCanvas = ProbeMapCanvas(dataset)
+
+        self.controlPanel = ControlPanel(self.dataset)
+        self.scrollZoomPanel = ScrollZoomPanel(probeMapCanvas)
+        self.toolbar = probeMapCanvas.getToolbar()
+
+        # signal connections
+        self.controlPanel.filterSelected.connect(probeMapCanvas.toggleFiltered)
+        self.controlPanel.spikeDetectSelected.connect(probeMapCanvas.toggleSpikes)
+        self.controlPanel.zoomUpdated.connect(probeMapCanvas.setZoom)
+        probeMapCanvas.autoZoomCalculated.connect(self.controlPanel.setZoom)
+
+        probeMapCanvas.setZoom(self.controlPanel.getZoomParams()) # initialize zoom
+
+        layout = QtGui.QVBoxLayout()
+        layout.addWidget(self.controlPanel)
+        layout.addWidget(self.scrollZoomPanel)
+        layout.addWidget(self.toolbar)
+        self.setLayout(layout)
+
+        self.setWindowTitle('Probe-Mapped Plot Window: %s' % self.dataset.filename)
+        self.setWindowIcon(QtGui.QIcon('../img/round_logo_60x60.png'))
+        self.showMaximized()
+
+    def keyPressEvent(self, event):
+        if event.modifiers() == QtCore.Qt.ControlModifier:
+            if event.key() == QtCore.Qt.Key_Equal:
+                self.scrollZoomPanel.verticalZoom(120)
+            elif event.key() == QtCore.Qt.Key_Minus:
+                self.scrollZoomPanel.verticalZoom(-120)
+
+if __name__=='__main__':
+    if len(sys.argv)<2:
+        filename = '/home/chrono/neuro/data/hasenstaub/snapshot_20151123-195046_stimulus.h5'
+        dataset = WillowDataset(filename, [0,30000])
+    else:
+        filename = sys.argv[1]
+        dataset = WillowDataset(filename, -1)
+    dataset.importData()
+    app = QtGui.QApplication(sys.argv)
+    probeMapPlotWindow = ProbeMapPlotWindow(dataset)
+    probeMapPlotWindow.show()
+    app.exec_()
