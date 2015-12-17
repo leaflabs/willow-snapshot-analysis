@@ -13,8 +13,8 @@ from WillowDataset import WillowDataset
 
 #### config
 
-#CHAN_OFFSET = 928 # using miso/mosi 8, chips 2 and 3
-CHAN_OFFSET = 0
+CHAN_OFFSET = 928 # using miso/mosi 8, chips 2 and 3
+#CHAN_OFFSET = 0
 PROBEMAP_FILE = 'probeMap_64_black_2015.npy'
 
 PROBEMAP = np.load(PROBEMAP_FILE)
@@ -119,17 +119,16 @@ class RasterGPIO(QtGui.QWidget):
 
 if __name__=='__main__':
     if len(sys.argv)<2:
-        print 'Usage:'
-        print ' $ %s <snapshot.h5>' % sys.argv[0]
-        sys.exit()
+        filename = '/home/chrono/neuro/data/hasenstaub/64chan/snapshot_20151123-195046_stimulus.h5'
+        dataset = WillowDataset(filename, [0,30000])
     else:
         filename = sys.argv[1]
-        app = QtGui.QApplication(sys.argv)
-        dataset = WillowDataset(filename, -1) # TODO check for length first
-        dataset.importData()
-        rasterGPIO0 = RasterGPIO(dataset, 0)
-        rasterGPIO0.show()
-        rasterGPIO1 = RasterGPIO(dataset, 1)
-        rasterGPIO1.show()
-        app.exec_()
+        dataset = WillowDataset(filename, -1)
+    app = QtGui.QApplication(sys.argv)
+    dataset.importData()
+    rasterGPIO0 = RasterGPIO(dataset, 0)
+    rasterGPIO0.show()
+    rasterGPIO1 = RasterGPIO(dataset, 1)
+    rasterGPIO1.show()
+    app.exec_()
     

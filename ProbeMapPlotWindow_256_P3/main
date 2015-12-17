@@ -2,6 +2,7 @@
 
 from PyQt4 import QtCore, QtGui
 import os, sys, time
+sys.setrecursionlimit(10000) # this is necessary to mutually link >140 plot axes
 import pyqtgraph as pg
 
 import numpy as np
@@ -13,21 +14,22 @@ from WillowDataset import WillowDataset
 ####
 # CONFIG SECTION
 
-CHAN_OFFSET = 928 # using miso/mosi 8, chips 2 and 3
+CHAN_OFFSET = 6*128 # using miso/mosi 7 and 8, last 256 channels
 #CHAN_OFFSET = 0
-PROBEMAP_FILE = 'probeMap_64_black_2015.npy'
+PROBEMAP_FILE = 'probeMap_256_P3_2015.npy'
 
 
-#### # global channel map and helper functions
+####
+# global channel map and helper functions
 
 PROBEMAP = np.load(PROBEMAP_FILE)
 
 def probeChanFromSubplotIndex(subplotIndex):
     # here's some mangling that's necessary b.c. matplotlib plots subplots
     #   in column-major order, for some reason
-    subplotRow = subplotIndex // 2
-    subplotCol = subplotIndex % 2
-    justinRow = 31 - subplotRow # "row 0/1 is near the tip (bottom)" -justin
+    subplotRow = subplotIndex // 4
+    subplotCol = subplotIndex % 4
+    justinRow = 63 - subplotRow # "row 0/1 is near the tip (bottom)" -justin
     justinCol = subplotCol
     probeChan = PROBEMAP[justinRow, justinCol]
     return probeChan
@@ -218,14 +220,14 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
         self.initializePlots()
         self.plotFiltered()
 
-        self.defaultHeight = 5000
+        self.defaultHeight = 10000
         self.setDefaultHeight()
 
     def setDefaultHeight(self):
         self.resize(self.width(), self.defaultHeight)
 
     def initializePlots(self):
-        for i in range(64):
+        for i in range(256):
             willowChan = willowChanFromSubplotIndex(i)
             plotItem = ClickablePlotItem()
             plotItem.setChannel(willowChan) # sets title + attribute
@@ -236,15 +238,14 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
                 plotItem.setXLink(self.plotItems[i-1])
                 plotItem.setYLink(self.plotItems[i-1])
             self.locked = True
-            if i%2:
+            if (i+1)%4==0:
                 self.nextRow()
 
     def toggleFiltered(self, filtered):
+        self.clearAll()
         if filtered:
-            self.clearAll()
             self.plotFiltered()
         else:
-            self.clearAll()
             self.plotRaw()
 
     def toggleSpikes(self, spikes):
@@ -340,7 +341,7 @@ class ProbeMapPlotWindow(QtGui.QWidget):
         layout.addWidget(self.scrollZoomPanel)
         self.setLayout(layout)
 
-        self.setWindowTitle('64 Channel Probe-Mapped Plot Window: %s' % self.dataset.filename)
+        self.setWindowTitle('256 Channel Probe-Mapped Plot Window: %s' % self.dataset.filename)
         self.setWindowIcon(QtGui.QIcon('leaflabs_logo.png'))
         self.showMaximized()
 
@@ -353,21 +354,21 @@ class ProbeMapPlotWindow(QtGui.QWidget):
 
 if __name__=='__main__':
     if len(sys.argv)<2:
-        filename = '/home/chrono/neuro/data/hasenstaub/64chan/snapshot_20151123-195046_stimulus.h5'
-        dataset = WillowDataset(filename, [0,30000])
+        filename = '/home/chrono/neuro/data/hasenstaub/256chan/snapshot_20151123-212835.h5'
+        dataset = WillowDataset(filename, -1)
     else:
         filename = sys.argv[1]
         dataset = WillowDataset(filename, -1)
     dataset.importData()
 
     t1 = time.time()
-    dataset.filterData(channelList=range(CHAN_OFFSET, CHAN_OFFSET+64))
+    dataset.filterData(channelList=range(CHAN_OFFSET, CHAN_OFFSET+256))
     print 'filtering took:', time.time() - t1
 
-    dataset.dataMin = np.min(dataset.data_uv[CHAN_OFFSET:CHAN_OFFSET+64,:])
-    dataset.dataMax = np.max(dataset.data_uv[CHAN_OFFSET:CHAN_OFFSET+64,:])
-    dataset.dataMin_filtered = np.min(dataset.data_uv_filtered[CHAN_OFFSET:CHAN_OFFSET+64,:])
-    dataset.dataMax_filtered = np.max(dataset.data_uv_filtered[CHAN_OFFSET:CHAN_OFFSET+64,:])
+    dataset.dataMin = np.min(dataset.data_uv[CHAN_OFFSET:CHAN_OFFSET+256,:])
+    dataset.dataMax = np.max(dataset.data_uv[CHAN_OFFSET:CHAN_OFFSET+256,:])
+    dataset.dataMin_filtered = np.min(dataset.data_uv_filtered[CHAN_OFFSET:CHAN_OFFSET+256,:])
+    dataset.dataMax_filtered = np.max(dataset.data_uv_filtered[CHAN_OFFSET:CHAN_OFFSET+256,:])
 
     app = QtGui.QApplication(sys.argv)
     t1 = time.time()
