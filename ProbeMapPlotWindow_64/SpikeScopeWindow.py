@@ -88,9 +88,12 @@ class SpikeScopeWindow(QtGui.QWidget):
         self.axes_spikeScope.clear()
         indices = self.dataset.spikeIndices[self.chan]
         for i in indices:
-            tmpRange = np.arange(i-30, i+30, dtype='int')
-            self.axes_spikeScope.plot((tmpRange-i)/30.,
-                self.dataset.data_uv_filtered[self.chan, tmpRange])
+            try:
+                tmpRange = np.arange(i-30, i+30, dtype='int')
+                self.axes_spikeScope.plot((tmpRange-i)/30.,
+                    self.dataset.data_uv_filtered[self.chan, tmpRange])
+            except IndexError:
+                pass # ignore spikes that are within 30 samples of the data limits
             self.axes_spikeScope.set_xlabel('ms')
             self.axes_spikeScope.set_ylabel('uV')
         self.canvas.draw()
