@@ -16,7 +16,7 @@ if __name__ == '__main__':
     nsamples = len(sidx)
     aux = np.array(fileObject['aux_data']).reshape(nsamples, 96).transpose()
     # only a subset of the samples contain GPIO (2khz)
-    GPIObitfield = aux[1, :] # any i s.t. (i%3==1) would work here
+    GPIObitfield = aux[0, :] # any i s.t. (i%3==0) would work here
     # now deconstruct the bitfield into separate channels
     GPIO = np.zeros((16,len(GPIObitfield)))
     x = np.arange(len(GPIObitfield))
