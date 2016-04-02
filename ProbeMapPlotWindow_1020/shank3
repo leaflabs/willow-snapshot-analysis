@@ -18,7 +18,7 @@ from WillowDataset import WillowDataset
 ################
 # CONFIG SECTION
 
-SHANK = 2
+SHANK = 3
 JORGSHANK = 6 - SHANK
 PROBEMAP_FILE = 'probeMap_1020.p'
 PROBEMAP = pickle.load(open(PROBEMAP_FILE, 'rb')) # (shank, col, row) : willowChan

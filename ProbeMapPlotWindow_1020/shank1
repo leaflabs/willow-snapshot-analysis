@@ -10,35 +10,37 @@ pg.setConfigOptions(antialias=True)
 
 import numpy as np
 
+import pickle
+
 from SpikeScopeWindow import SpikeScopeWindow
 from WillowDataset import WillowDataset
 
-####
+################
 # CONFIG SECTION
 
-#CHAN_OFFSET = 6*128 # using miso/mosi 7 and 8, last 256 channels
-#CHAN_OFFSET = 0
-#PROBEMAP_FILE = 'probeMap_256_P4_2015.npy'
+SHANK = 1
+JORGSHANK = 6 - SHANK
+PROBEMAP_FILE = 'probeMap_1020.p'
+PROBEMAP = pickle.load(open(PROBEMAP_FILE, 'rb')) # (shank, col, row) : willowChan
 
+if os.path.isfile('impedance.h5'):
+    f = h5py.File('impedance.h5')
+    IMPEDANCEMAP = f['impedanceMeasurements']
+else:
+    IMPEDANCEMAP = np.zeros(1024)
 
-####
-# global channel map and helper functions
-
-#PROBEMAP = np.load(PROBEMAP_FILE)
-
-def probeChanFromSubplotIndex(subplotIndex):
-    # here's some mangling that's necessary b.c. matplotlib plots subplots
-    #   in column-major order, for some reason
-    subplotRow = subplotIndex // 4
-    subplotCol = subplotIndex % 4
-    justinRow = 63 - subplotRow # "row 0/1 is near the tip (bottom)" -justin
-    justinCol = subplotCol
-    probeChan = PROBEMAP[justinRow, justinCol]
-    return probeChan
+################
 
 def willowChanFromSubplotIndex(subplotIndex):
-    return CHAN_OFFSET + probeChanFromSubplotIndex(subplotIndex)
-
+    # here's some mangling that's necessary b.c. pyqtgraph plots subplots
+    #   in column-major order (?), for some reason
+    subplotRow = subplotIndex // 2
+    subplotCol = subplotIndex % 2
+    # jorg's row/col's are upside down from ours, and 1-indexed
+    jorgRow = 102 - subplotRow # row 0/1 is near the tip (bottom)
+    jorgCol = 2 - subplotCol
+    willowChan = PROBEMAP[JORGSHANK, jorgCol, jorgRow]
+    return willowChan
 
 ####
 # main widget classes
@@ -201,7 +203,7 @@ class ClickablePlotItem(pg.PlotItem):
 
     def setChannel(self, chan):
         self.chan = chan
-        self.setTitle(title='Channel %d' % (self.chan+1)) # titles are 1-indexed
+        self.setTitle(title='Ch %d, Z = %.2f k' % (self.chan, IMPEDANCEMAP[self.chan]/1000.))
 
     def setDataset(self, dataset):
         self.dataset = dataset
@@ -229,7 +231,7 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
         self.resize(self.width(), self.defaultHeight)
 
     def initializePlots(self):
-        for i in range(256):
+        for i in range(204):
             willowChan = willowChanFromSubplotIndex(i)
             plotItem = ClickablePlotItem()
             plotItem.setChannel(willowChan) # sets title + attribute
@@ -240,7 +242,7 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
                 plotItem.setXLink(self.plotItems[i-1])
                 plotItem.setYLink(self.plotItems[i-1])
             self.locked = True
-            if (i+1)%4==0:
+            if (i+1)%2==0:
                 self.nextRow()
 
     def toggleFiltered(self, filtered):
@@ -343,7 +345,7 @@ class ProbeMapPlotWindow(QtGui.QWidget):
         layout.addWidget(self.scrollZoomPanel)
         self.setLayout(layout)
 
-        self.setWindowTitle('256 Channel Probe-Mapped Plot Window: %s' % self.dataset.filename)
+        self.setWindowTitle('Shank %d' % SHANK)
         self.setWindowIcon(QtGui.QIcon('leaflabs_logo.png'))
         self.showMaximized()
 
@@ -355,10 +357,27 @@ class ProbeMapPlotWindow(QtGui.QWidget):
                 self.scrollZoomPanel.verticalZoom(-120)
 
 if __name__=='__main__':
+    if len(sys.argv)<2:
+        filename = '/home/chrono/neuro/data/hasenstaub/256chan/snapshot_20151123-212835.h5'
+    else:
+        filename = sys.argv[1]
+
+    dataset = WillowDataset(filename, -1)
+    dataset.importData()
+
+    # filter data, find min and max for *this shank's channels only*
+    shankChannels = []
+    for item in PROBEMAP:
+        if item[0] == JORGSHANK: shankChannels.append(PROBEMAP[item])
+
+    dataset.filterData(channelList=shankChannels)
+
+    dataset.dataMin = np.min(dataset.data_uv[shankChannels,:])
+    dataset.dataMax = np.max(dataset.data_uv[shankChannels,:])
+    dataset.dataMin_filtered = np.min(dataset.data_uv_filtered[shankChannels,:])
+    dataset.dataMax_filtered = np.max(dataset.data_uv_filtered[shankChannels,:])
+
     app = QtGui.QApplication(sys.argv)
-
-    mainWindow = QtGui.QWidget()
-    mainWindow.setWindowTitle('shank1')
+    mainWindow = ProbeMapPlotWindow(dataset)
     mainWindow.show()
-
     app.exec_()
