@@ -54,7 +54,7 @@ class HelpWindow(QtGui.QWidget):
                     "<li>Ctrl-Mousewheel over an axis zooms in that dimension</li>"
                     "<li>By default, all plot axes are locked together. To unlock them, uncheck the 'Lock Plots Together' box in the control panel</li>"
                     "<li>Double-click on a plot to open a SpikeScope window for that channel</li>"
-                    "<li>Channel numbers are 1-indexed, and in reference to the 1024-channel Willow dataspace</li>"
+                    "<li>Channel numbers are 0-indexed, and in reference to the 1024-channel Willow dataspace</li>"
                     "<li>y-axes have units of microVolts (uV), x-axes have units of milliseconds (ms)</li>"
                     "<li>You may wish to adjust some parameters, like the channel offset or probemap file, in the CONFIG section of the main script</li>"
                     "</ul>")
