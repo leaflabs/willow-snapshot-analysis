@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 from PyQt4 import QtCore, QtGui
-import os, sys, time
+import os, sys, time, pickle, h5py
 sys.setrecursionlimit(10000) # this is necessary to mutually link >140 plot axes
 import pyqtgraph as pg
 pg.setConfigOptions(antialias=True)
@@ -15,24 +15,27 @@ from WillowDataset import WillowDataset
 ####
 # CONFIG SECTION
 
-CHAN_OFFSET = 6*128 # using miso/mosi 7 and 8, last 256 channels
-#CHAN_OFFSET = 0
-PROBEMAP_FILE = 'probeMap_256_P4_2015.npy'
+CHAN_OFFSET = 0
+PROBEMAP_FILE = 'probeMap_256_P4_level2_canonical.p'
 
 
 ####
 # global channel map and helper functions
 
-PROBEMAP = np.load(PROBEMAP_FILE)
+PROBEMAP = pickle.load(open(PROBEMAP_FILE, 'rb'))
+
+if os.path.isfile('impedance.h5'):
+    f = h5py.File('impedance.h5')
+    IMPEDANCEMAP = f['impedanceMeasurements']
+else:
+    IMPEDANCEMAP = np.zeros(1024)
 
 def probeChanFromSubplotIndex(subplotIndex):
     # here's some mangling that's necessary b.c. matplotlib plots subplots
     #   in column-major order, for some reason
     subplotRow = subplotIndex // 4
     subplotCol = subplotIndex % 4
-    justinRow = 63 - subplotRow # "row 0/1 is near the tip (bottom)" -justin
-    justinCol = subplotCol
-    probeChan = PROBEMAP[justinRow, justinCol]
+    probeChan = PROBEMAP[0, subplotRow, subplotCol]
     return probeChan
 
 def willowChanFromSubplotIndex(subplotIndex):
@@ -55,7 +58,7 @@ class HelpWindow(QtGui.QWidget):
                     "<li>Ctrl-Mousewheel over an axis zooms in that dimension</li>"
                     "<li>By default, all plot axes are locked together. To unlock them, uncheck the 'Lock Plots Together' box in the control panel</li>"
                     "<li>Double-click on a plot to open a SpikeScope window for that channel</li>"
-                    "<li>Channel numbers are 1-indexed, and in reference to the 1024-channel Willow dataspace</li>"
+                    "<li>Channel numbers are 0-indexed, and in reference to the 1024-channel Willow dataspace</li>"
                     "<li>y-axes have units of microVolts (uV), x-axes have units of milliseconds (ms)</li>"
                     "<li>You may wish to adjust some parameters, like the channel offset or probemap file, in the CONFIG section of the main script</li>"
                     "</ul>")
@@ -200,7 +203,7 @@ class ClickablePlotItem(pg.PlotItem):
 
     def setChannel(self, chan):
         self.chan = chan
-        self.setTitle(title='Channel %d' % (self.chan+1)) # titles are 1-indexed
+        self.setTitle(title='Ch %d, Z = %.2f k' % (self.chan, IMPEDANCEMAP[self.chan]/1000.))
 
     def setDataset(self, dataset):
         self.dataset = dataset
