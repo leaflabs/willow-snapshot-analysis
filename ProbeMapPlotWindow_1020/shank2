@@ -19,7 +19,6 @@ from WillowDataset import WillowDataset
 # CONFIG SECTION
 
 SHANK = 2
-JORGSHANK = 6 - SHANK
 PROBEMAP_FILE = 'probeMap_1020.p'
 PROBEMAP = pickle.load(open(PROBEMAP_FILE, 'rb')) # (shank, col, row) : willowChan
 
@@ -36,10 +35,7 @@ def willowChanFromSubplotIndex(subplotIndex):
     #   in column-major order (?), for some reason
     subplotRow = subplotIndex // 2
     subplotCol = subplotIndex % 2
-    # jorg's row/col's are upside down from ours, and 1-indexed
-    jorgRow = 102 - subplotRow # row 0/1 is near the tip (bottom)
-    jorgCol = 2 - subplotCol
-    willowChan = PROBEMAP[JORGSHANK, jorgCol, jorgRow]
+    willowChan = PROBEMAP[SHANK, subplotRow, subplotCol]
     return willowChan
 
 ####
@@ -368,7 +364,7 @@ if __name__=='__main__':
     # filter data, find min and max for *this shank's channels only*
     shankChannels = []
     for item in PROBEMAP:
-        if item[0] == JORGSHANK: shankChannels.append(PROBEMAP[item])
+        if item[0] == SHANK: shankChannels.append(PROBEMAP[item])
 
     dataset.filterData(channelList=shankChannels)
 
