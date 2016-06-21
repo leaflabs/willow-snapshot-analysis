@@ -364,7 +364,7 @@ if __name__=='__main__':
         dataset = WillowDataset(filename, -1)
     else:
         filename = sys.argv[1]
-        dataset = WillowDataset(filename, [0,30000])
+        dataset = WillowDataset(filename, -1)
     dataset.importData()
 
     t1 = time.time()
