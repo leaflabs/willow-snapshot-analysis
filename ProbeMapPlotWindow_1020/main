@@ -1,22 +1,19 @@
 #!/usr/bin/python
 
-import os, sys, time, subprocess
+import sys, subprocess
 
 if __name__=='__main__':
     if len(sys.argv)<2:
-        filename = '/home/chrono/neuro/data/hasenstaub/256chan/snapshot_20151123-212835.h5'
+        print 'Usage: ./main <snapshot_filename.h5>'
+        sys.exit(1)
     else:
         filename = sys.argv[1]
 
-    p1 = subprocess.Popen(['./shank1', filename])
-    p2 = subprocess.Popen(['./shank2', filename])
-    p3 = subprocess.Popen(['./shank3', filename])
-    p4 = subprocess.Popen(['./shank4', filename])
-    p5 = subprocess.Popen(['./shank5', filename])
+    subprocs = []
+    for i in range(5):
+        subprocs.append(subprocess.Popen(['../lib/py/ShankPlot.py', filename,
+                        'probeMap_1020.p', str(i)]))
 
     # wait for child processes to finish
-    p1.wait()
-    p2.wait()
-    p3.wait()
-    p4.wait()
-    p5.wait()
+    for subproc in subprocs:
+        subproc.wait()

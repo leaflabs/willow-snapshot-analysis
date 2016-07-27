@@ -10,31 +10,19 @@ pg.setConfigOptions(antialias=True)
 
 import numpy as np
 
-import pickle
+import pickle, glob
 
 from SpikeScopeWindow import SpikeScopeWindow
 from WillowDataset import WillowDataset
 
 ################
-# CONFIG SECTION
 
-SHANK = 5
-PROBEMAP = pickle.load(open(PROBEMAP_FILE, 'rb')) # (shank, col, row) : willowChan
-
-if os.path.isfile('impedance.h5'):
-    f = h5py.File('impedance.h5')
-    IMPEDANCEMAP = f['impedanceMeasurements']
-else:
-    IMPEDANCEMAP = np.zeros(1024)
-
-################
-
-def willowChanFromSubplotIndex(subplotIndex):
+def willowChanFromSubplotIndex(subplotIndex, probeMap, shank):
     # here's some mangling that's necessary b.c. pyqtgraph plots subplots
     #   in column-major order (?), for some reason
     subplotRow = subplotIndex // 2
     subplotCol = subplotIndex % 2
-    willowChan = PROBEMAP[SHANK, subplotRow, subplotCol]
+    willowChan = probeMap[shank, subplotRow, subplotCol]
     return willowChan
 
 ####
@@ -65,7 +53,7 @@ class HelpWindow(QtGui.QWidget):
         self.setLayout(layout)
 
         self.setWindowTitle('Help')
-        self.setWindowIcon(QtGui.QIcon('leaflabs_logo.png'))
+        self.setWindowIcon(QtGui.QIcon('../lib/img/leaflabs_logo.png'))
 
 
 class ControlPanel(QtGui.QWidget):
@@ -96,14 +84,14 @@ class ControlPanel(QtGui.QWidget):
         self.lockCheckbox.stateChanged.connect(self.toggleLock)
 
         self.defaultButton = QtGui.QPushButton()
-        self.defaultButton.setIcon(QtGui.QIcon('home.png'))
+        self.defaultButton.setIcon(QtGui.QIcon('../lib/img/home.png'))
         self.defaultButton.setToolTip('Restore Defaults')
         self.defaultButton.clicked.connect(self.restoreDefault)
         self.defaultButton.setMaximumWidth(80)
         self.defaultButton.setMaximumHeight(80)
 
         self.helpButton = QtGui.QPushButton()
-        self.helpButton.setIcon(QtGui.QIcon('help.png'))
+        self.helpButton.setIcon(QtGui.QIcon('../lib/img/help.png'))
         self.helpButton.setToolTip('Help')
         self.helpButton.setMaximumWidth(80)
         self.helpButton.setMaximumHeight(80)
@@ -196,9 +184,13 @@ class ClickablePlotItem(pg.PlotItem):
         pg.PlotItem.__init__(self, *args, **kwargs)
         self.chan = -1
 
-    def setChannel(self, chan):
+    def setChannel(self, chan, **kwargs):
         self.chan = chan
-        self.setTitle(title='Ch %d, Z = %.2f k' % (self.chan, IMPEDANCEMAP[self.chan]/1000.))
+        if 'impedance' in kwargs:
+            impedance = kwargs['impedance']
+            self.setTitle(title='Ch %d, Z = %.2f k' % (self.chan, impedance/1000.))
+        else:
+            self.setTitle(title='Channel %d' % self.chan)
 
     def setDataset(self, dataset):
         self.dataset = dataset
@@ -209,9 +201,14 @@ class ClickablePlotItem(pg.PlotItem):
 
 class MultiPlotWidget(pg.GraphicsLayoutWidget):
 
-    def __init__(self, dataset):
+    def __init__(self, dataset, probeMap, shank, impedanceMap):
         pg.GraphicsLayoutWidget.__init__(self)
         self.dataset = dataset
+        self.probeMap = probeMap
+        self.shank = shank
+        self.impedanceMap = impedanceMap
+
+        self.nchannels = self.probeMap['ncols']*self.probeMap['nrows']
 
         self.plotItems = []
         self.locked = False
@@ -226,10 +223,13 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
         self.resize(self.width(), self.defaultHeight)
 
     def initializePlots(self):
-        for i in range(204):
-            willowChan = willowChanFromSubplotIndex(i)
+        for i in range(self.nchannels):
+            willowChan = willowChanFromSubplotIndex(i, self.probeMap, self.shank)
             plotItem = ClickablePlotItem()
-            plotItem.setChannel(willowChan) # sets title + attribute
+            if self.impedanceMap:
+                plotItem.setChannel(willowChan, impedance=self.impedanceMap[willowChan])
+            else:
+                plotItem.setChannel(willowChan)
             plotItem.setDataset(self.dataset) # TODO better way?
             self.addItem(plotItem)
             self.plotItems.append(plotItem)
@@ -272,7 +272,7 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
 
     def overlaySpikes(self):
         for i,plot in enumerate(self.plotItems):
-            willowChan = willowChanFromSubplotIndex(i)
+            willowChan = willowChanFromSubplotIndex(i, self.probeMap, self.shank)
             plot.addLine(x=self.dataset.spikeTimes[willowChan][0])
             #for spikeTime in self.dataset.spikeTimes[willowChan]:
             #    plot.addLine(x=spikeTime)
@@ -286,14 +286,14 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
 
     def plotFiltered(self):
         for i,plot in enumerate(self.plotItems):
-            willowChan = willowChanFromSubplotIndex(i)
+            willowChan = willowChanFromSubplotIndex(i, self.probeMap, self.shank)
             plot.plot(x=self.dataset.time_ms, y=self.dataset.data_uv_filtered[willowChan,:],
                         pen=(143,219,144))
             plot.setYRange(self.dataset.dataMin_filtered, self.dataset.dataMax_filtered, padding=0.9)
 
     def plotRaw(self):
         for i,plot in enumerate(self.plotItems):
-            willowChan = willowChanFromSubplotIndex(i)
+            willowChan = willowChanFromSubplotIndex(i, self.probeMap, self.shank)
             plot.plot(x=self.dataset.time_ms, y=self.dataset.data_uv[willowChan,:],
                         pen=(143,219,144))
             plot.setYRange(self.dataset.dataMin, self.dataset.dataMax, padding=0.9)
@@ -317,15 +317,24 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
         else:
             ev.ignore() # propagate event to parent (scrollzoompanel)
 
-class ProbeMapPlotWindow(QtGui.QWidget):
+class ShankPlotWindow(QtGui.QWidget):
 
-    def __init__(self, dataset):
+    def __init__(self, dataset, probeMap, shank, impedanceMap):
         QtGui.QWidget.__init__(self)
-        self.dataset = dataset
 
-        self.multiPlotWidget = MultiPlotWidget(self.dataset)
+        # filter data, find min and max for *this shank's channels only*
+        shankChannels = []
+        for item in probeMap:
+            if item[0] == shank: shankChannels.append(probeMap[item])
+        dataset.filterData(channelList=shankChannels)
+        dataset.dataMin = np.min(dataset.data_uv[shankChannels,:])
+        dataset.dataMax = np.max(dataset.data_uv[shankChannels,:])
+        dataset.dataMin_filtered = np.min(dataset.data_uv_filtered[shankChannels,:])
+        dataset.dataMax_filtered = np.max(dataset.data_uv_filtered[shankChannels,:])
 
-        self.controlPanel = ControlPanel(self.dataset)
+        self.multiPlotWidget = MultiPlotWidget(dataset, probeMap, shank, impedanceMap)
+
+        self.controlPanel = ControlPanel(dataset)
         self.scrollZoomPanel = ScrollZoomPanel(self.multiPlotWidget)
 
         # signal connections
@@ -340,8 +349,8 @@ class ProbeMapPlotWindow(QtGui.QWidget):
         layout.addWidget(self.scrollZoomPanel)
         self.setLayout(layout)
 
-        self.setWindowTitle('Shank %d' % SHANK)
-        self.setWindowIcon(QtGui.QIcon('leaflabs_logo.png'))
+        self.setWindowTitle('Shank %d' % shank)
+        self.setWindowIcon(QtGui.QIcon('../lib/img/leaflabs_logo.png'))
         self.showMaximized()
 
     def keyPressEvent(self, event):
@@ -352,27 +361,36 @@ class ProbeMapPlotWindow(QtGui.QWidget):
                 self.scrollZoomPanel.verticalZoom(-120)
 
 if __name__=='__main__':
-    if len(sys.argv)<2:
-        filename = '/home/chrono/neuro/data/hasenstaub/256chan/snapshot_20151123-212835.h5'
+    if len(sys.argv) < 3:
+        print 'Usage: ./ShankPlot.py <snapshot_filename.h5> <probeMap_level2.p> [shank]'
+        sys.exit(1)
     else:
-        filename = sys.argv[1]
+        snapshot_filename = sys.argv[1]
+        probeMap_filename = sys.argv[2]
+        if len(sys.argv)==3:
+            shank = 0
+        else:
+            shank = int(sys.argv[3])
 
-    dataset = WillowDataset(filename, -1)
+    dataset = WillowDataset(snapshot_filename, -1)
     dataset.importData()
 
-    # filter data, find min and max for *this shank's channels only*
-    shankChannels = []
-    for item in PROBEMAP:
-        if item[0] == SHANK: shankChannels.append(PROBEMAP[item])
+    probeMap = pickle.load(open(probeMap_filename, 'rb')) # (shank, col, row) : willowChan
 
-    dataset.filterData(channelList=shankChannels)
+    snapshot_dir = os.path.dirname(snapshot_filename)
+    impedanceFiles = glob.glob(os.path.join(snapshot_dir, 'impedance*.h5'))
+    if len(impedanceFiles) > 0:
+        impedance_filename = impedanceFiles[0]
+        f = h5py.File(impedance_filename)
+        impedanceMap = f['impedanceMeasurements']
+    else:
+        impedanceMap = False
 
-    dataset.dataMin = np.min(dataset.data_uv[shankChannels,:])
-    dataset.dataMax = np.max(dataset.data_uv[shankChannels,:])
-    dataset.dataMin_filtered = np.min(dataset.data_uv_filtered[shankChannels,:])
-    dataset.dataMax_filtered = np.max(dataset.data_uv_filtered[shankChannels,:])
+    print 'impedanceMap = ', impedanceMap
+
+    ####
 
     app = QtGui.QApplication(sys.argv)
-    mainWindow = ProbeMapPlotWindow(dataset)
+    mainWindow = ShankPlotWindow(dataset, probeMap, shank, impedanceMap)
     mainWindow.show()
     app.exec_()

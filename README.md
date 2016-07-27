@@ -16,3 +16,11 @@ executable - so metadata (e.g. probe mappings) or library files can be kept in
 the same folder alongside the exectuable. stdout and stderr will be piped to
 'oFile' and 'eFile' in the working directory, so avoid using these filenames
 for metadata, as they will get overwritten upon execution.
+
+Place code or data that you'd like to re-use across different analysis programs
+in the lib/ directory. Then programs can access this code or data using
+relative pathnames, e.g. in Python:
+
+    sys.path.append('../lib/py')
+
+Stay D.R.Y.; Don't Repeat Yourself!
