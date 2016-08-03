@@ -41,9 +41,10 @@ class PlaybackWindow(QtGui.QWidget):
         sr = 30000                               # sample rate, in Hz
         frame_rate = self.refreshRate
         self.frame_period = 1000//frame_rate     # frame period, in ms
-        self.nsamps = 30*params['xrange']   # number of samples to display
+        self.nsamps = 30*params['xrange'] - 1    # number of samples to display
         self.nrefresh = sr//frame_rate   # new samples collected before refresh
         self.plotBuff = np.zeros((32, self.nsamps), dtype='float')
+        self.plotBuff_raw = np.zeros((32, self.nsamps), dtype='float')
         self.newBuff = np.zeros((32, self.nrefresh), dtype='float')
         self.initPlotRange()
         self.doneReplaying = False
@@ -174,7 +175,7 @@ class PlaybackWindow(QtGui.QWidget):
                                 '(mousewheel zooms horizontally, ctrl+mousewheel zooms vertically)'
                                         % (self.chip, xr, yr))
 
-    def getDataToPlot(self):
+    def getNewData(self):
         if self.plot_range[1] < self.dataset.sampleRange[1]:
             return self.dataset.data_uv[self.chip*32:(self.chip+1)*32,
                 self.plot_range[0]:self.plot_range[1]]
@@ -196,11 +197,6 @@ class PlaybackWindow(QtGui.QWidget):
             warnings.filterwarnings('default')
             return 1, 1
 
-    def filterData(self):
-        b, a = self.getFilter() 
-        filtered_data = signal.filtfilt(b, a, self.getDataToPlot(), axis=1)
-        return filtered_data
-
     def changeChip(self):
         self.stopPlayback()
         self.initPlotRange()
@@ -211,32 +207,42 @@ class PlaybackWindow(QtGui.QWidget):
 
     def initPlotRange(self):
         self.plot_range = [self.dataset.sampleRange[0],
-                           self.dataset.sampleRange[0] + self.nsamps]
+                           self.dataset.sampleRange[0] + self.nrefresh]
         if self.plot_range[1] > self.dataset.sampleRange[1]:
-            raise 'Not enough samples in dataset to stream'
+            # if dataset less than 1 frame's length, pad remainder of frame with 0's
+            # (this should not really happen for reasonable recording lengths
+            # and display rates)
+            self.dataset.data_uv = np.concatenate((self.dataset.data_uv[:,:], 
+                np.zeros((1024, self.plot_range[1]-self.dataset.sampleRange[1]))),1)
+            self.dataset.sampleRange[1] = self.plot_range[1]
 
     def updatePlot(self):
-        if self.filtering:
-            data_to_plot = self.filterData()
-        else:
-            data_to_plot = self.getDataToPlot()
-
-        new_data = data_to_plot[:,-self.nrefresh:]
-        old_data = data_to_plot[:,:-self.nrefresh]
+        self.newBuff = self.getNewData()
         if self.draw_point == 0:
-            self.plotBuff = np.concatenate((new_data, old_data),1)
-            self.canvas.draw_new_data(self.plotBuff, self.draw_point + self.nrefresh)
+            self.plotBuff_raw = np.concatenate((self.newBuff[:,:],
+                self.plotBuff_raw[:,self.nrefresh:]),1)
+            last_point = self.draw_point + self.nrefresh - 1
         elif self.draw_point + self.nrefresh > self.nsamps:
             # overflow of new data back to beginning of plot
             overflow_amt = self.draw_point + self.nrefresh - self.nsamps
-            self.plotBuff = np.concatenate((new_data[:,-overflow_amount:],
-                old_data[:,:], new_data[:,:-overflow_amount]),1)
-            self.canvas.draw_new_data(self.plotBuff, overflow_amt)
+            self.plotBuff_raw = np.concatenate((self.newBuff[:,-overflow_amt:],
+                self.plotBuff_raw[:,overflow_amt:self.draw_point],
+                self.newBuff[:,:self.nrefresh-overflow_amt]),1)
+            last_point = overflow_amt - 1
         else:
             # draw new data in the middle of old data
-            self.plotBuff = np.concatenate((old_data[:,-self.draw_point:],
-                new_data[:,:], old_data[:,:-self.draw_point]),1)
-            self.canvas.draw_new_data(self.plotBuff, self.draw_point + self.nrefresh)
+            self.plotBuff_raw = np.concatenate((self.plotBuff_raw[:,:self.draw_point],
+                self.newBuff[:,:],
+                self.plotBuff_raw[:,self.draw_point+self.nrefresh:]),1)
+            last_point = self.draw_point + self.nrefresh - 1
+
+        if self.filtering:
+            b, a = self.getFilter()
+            self.plotBuff = signal.filtfilt(b, a, self.plotBuff_raw, axis=1)
+        else:
+            self.plotBuff = self.plotBuff_raw
+
+        self.canvas.draw_new_data(self.plotBuff, last_point)
 
         # handle end of stream
         if self.plot_range[1] > self.dataset.sampleRange[1]:
@@ -570,6 +576,7 @@ if __name__=='__main__':
         filename = sys.argv[1]
         dataset = WillowDataset(filename, -1)
         dataset.importData()
+        print dataset.sampleRange
 
     app = QtGui.QApplication(sys.argv)
     dlg = PlaybackDialog()
