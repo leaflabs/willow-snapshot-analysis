@@ -35,13 +35,14 @@ class PlaybackWindow(QtGui.QWidget):
         ymin = -6390
         ymax = 6390
         self.deltay_uv = ymax - ymin
+        self.deltax_ms = params['xrange']
         self.refreshRate = params['refreshRate']
 
         # setup playback plotting
         sr = 30000                               # sample rate, in Hz
         frame_rate = self.refreshRate
         self.frame_period = 1000//frame_rate     # frame period, in ms
-        self.nsamps = 30*params['xrange'] - 1    # number of samples to display
+        self.nsamps = 30*self.max_xrange - 1    # number of samples to display
         self.nrefresh = sr//frame_rate   # new samples collected before refresh
         self.plotBuff = np.zeros((32, self.nsamps), dtype='float')
         self.plotBuff_raw = np.zeros((32, self.nsamps), dtype='float')
@@ -139,7 +140,7 @@ class PlaybackWindow(QtGui.QWidget):
         self.layout = QtGui.QVBoxLayout()
         self.layout.addWidget(self.buttonPanel)
         self.infoLabel = QtGui.QLabel()
-        self.setInfoLabel(params['xrange'], self.deltay_uv)
+        self.setInfoLabel(self.deltax_ms, self.deltay_uv)
         self.infoLabel.setMaximumHeight(60)
         self.layout.addWidget(self.infoLabel)
         self.layout.addWidget(self.canvas.native)
@@ -204,6 +205,7 @@ class PlaybackWindow(QtGui.QWidget):
         self.chip = chip
         self.canvas.draw_new_data(np.zeros((32, self.nsamps), dtype='float'), 
                                   self.nsamps)
+        self.setInfoLabel(self.deltax_ms, self.deltay_uv)
 
     def initPlotRange(self):
         self.plot_range = [self.dataset.sampleRange[0],
