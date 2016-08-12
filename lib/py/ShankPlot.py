@@ -20,8 +20,9 @@ from WillowDataset import WillowDataset
 def willowChanFromSubplotIndex(subplotIndex, probeMap, shank):
     # here's some mangling that's necessary b.c. pyqtgraph plots subplots
     #   in column-major order (?), for some reason
-    subplotRow = subplotIndex // 2
-    subplotCol = subplotIndex % 2
+    chansPerRow = max([key[2] for key in probeMap.keys() if type(key) == tuple]) + 1
+    subplotRow = subplotIndex // chansPerRow
+    subplotCol = subplotIndex % chansPerRow
     willowChan = probeMap[shank, subplotRow, subplotCol]
     return willowChan
 
