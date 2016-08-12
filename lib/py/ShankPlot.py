@@ -54,7 +54,7 @@ class HelpWindow(QtGui.QWidget):
         self.setLayout(layout)
 
         self.setWindowTitle('Help')
-        self.setWindowIcon(QtGui.QIcon('../img/leaflabs_logo.png'))
+        self.setWindowIcon(QtGui.QIcon('../lib/img/leaflabs_logo.png'))
 
 
 class ControlPanel(QtGui.QWidget):
@@ -85,14 +85,14 @@ class ControlPanel(QtGui.QWidget):
         self.lockCheckbox.stateChanged.connect(self.toggleLock)
 
         self.defaultButton = QtGui.QPushButton()
-        self.defaultButton.setIcon(QtGui.QIcon('../img/home.png'))
+        self.defaultButton.setIcon(QtGui.QIcon('../lib/img/home.png'))
         self.defaultButton.setToolTip('Restore Defaults')
         self.defaultButton.clicked.connect(self.restoreDefault)
         self.defaultButton.setMaximumWidth(80)
         self.defaultButton.setMaximumHeight(80)
 
         self.helpButton = QtGui.QPushButton()
-        self.helpButton.setIcon(QtGui.QIcon('../img/help.png'))
+        self.helpButton.setIcon(QtGui.QIcon('../lib/img/help.png'))
         self.helpButton.setToolTip('Help')
         self.helpButton.setMaximumWidth(80)
         self.helpButton.setMaximumHeight(80)
@@ -351,7 +351,7 @@ class ShankPlotWindow(QtGui.QWidget):
         self.setLayout(layout)
 
         self.setWindowTitle('Shank %d' % shank)
-        self.setWindowIcon(QtGui.QIcon('../img/leaflabs_logo.png'))
+        self.setWindowIcon(QtGui.QIcon('../lib/img/leaflabs_logo.png'))
         self.showMaximized()
 
     def keyPressEvent(self, event):
