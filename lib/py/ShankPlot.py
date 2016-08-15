@@ -184,6 +184,8 @@ class ClickablePlotItem(pg.PlotItem):
     def __init__(self, *args, **kwargs):
         pg.PlotItem.__init__(self, *args, **kwargs)
         self.chan = -1
+        self.getAxis('left').setStyle(textFillLimits=[(3,0.05)], tickLength=5)
+        self.getAxis('bottom').setStyle(tickLength=5)
 
     def setChannel(self, chan, **kwargs):
         self.chan = chan
