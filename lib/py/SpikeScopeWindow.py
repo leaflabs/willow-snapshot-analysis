@@ -41,10 +41,10 @@ class SpikeScopeWindow(QtGui.QWidget):
     def on_click(self, event):
         if (event.inaxes == self.axes_chanPlot):
             if event.button == 2: # middle-click
+                self.refreshSpikes(thresh='auto')
+            elif event.button == 3: # right-click
                 if event.ydata < 0:
                     self.refreshSpikes(thresh=event.ydata)
-            elif event.button == 3: # right-click
-                self.refreshSpikes(thresh='auto')
 
     def createMplPanel(self):
         self.fig = Figure()
@@ -53,9 +53,10 @@ class SpikeScopeWindow(QtGui.QWidget):
         self.canvas.mpl_connect('button_press_event', self.on_click)
 
         self.axes_chanPlot = self.fig.add_subplot(211)
-        self.axes_chanPlot.set_title('Filtered Data - Middle Click to Set Threshold')
+        self.axes_chanPlot.set_title('Filtered Data: Right Click to Set Threshold, Middle Click for Default')
         self.axes_spikeScope = self.fig.add_subplot(212)
-        self.axes_spikeScope.set_title('Spike Scope')
+
+        self.fig.subplots_adjust(hspace=0.3)
 
         mplPanel = QtGui.QWidget()
         layout = QtGui.QVBoxLayout()
@@ -86,6 +87,8 @@ class SpikeScopeWindow(QtGui.QWidget):
 
     def doSpikeScope(self):
         self.axes_spikeScope.clear()
+        self.axes_spikeScope.set_title('Spike Scope: %d Threshold Crossings'
+                                        % self.dataset.nspikes[self.chan])
         indices = self.dataset.spikeIndices[self.chan]
         for i in indices:
             try:
@@ -99,15 +102,11 @@ class SpikeScopeWindow(QtGui.QWidget):
         self.canvas.draw()
 
 if __name__=='__main__':
-    import config
-    config.updateAttributes(config.loadJSON())
-    from ImportDialog import ImportDialog
     app = QtGui.QApplication(sys.argv)
-    filename = str(QtGui.QFileDialog.getOpenFileName(None,
-        'Select Data File', config.dataDir))
+    filename = str(QtGui.QFileDialog.getOpenFileName(None, 'Select Data File', '/home/chrono/leafyles/neuro'))
     if filename:
-        dataset = WillowDataset(filename, sampleRange)
+        dataset = WillowDataset(filename, [0,29999])
         dataset.importData()
-        spikeScopeWindow = SpikeScopeWindow(dataset, 988)
+        spikeScopeWindow = SpikeScopeWindow(dataset, 166)
         spikeScopeWindow.show()
         app.exec_()

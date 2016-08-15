@@ -20,6 +20,7 @@ def threshold(indata, thresh=None):
         recording = False
         buff = []
         stats = []
+        nspikes = 0
         for i,samp in enumerate(indata):
             if not recording:
                 if samp<=thresh:
@@ -29,11 +30,12 @@ def threshold(indata, thresh=None):
                 if samp>thresh:
                     recording = False
                     stats.append(analyzeBuffer(buff))
+                    nspikes += 1
                     buff = []
                 else:
                     buff.append((i,samp))
 
-        return stats
+        return stats, nspikes
 
 class WillowImportError(Exception):
     pass
@@ -119,7 +121,8 @@ class WillowDataset(QtCore.QObject):
 
         # spikedetection
         self.spikeThresholds = {}
-        self.spikeIndices= {}
+        self.spikeIndices = {}
+        self.nspikes = {}
         self.spikeTimes= {}
 
     def importData(self):
@@ -174,7 +177,7 @@ class WillowDataset(QtCore.QObject):
             tmpChannel = self.data_uv_filtered[i,:]
             if thresh=='auto':
                 thresh = -4.5*np.median(np.abs(tmpChannel))/0.6745  # from Justin
-            self.spikeIndices[i] = threshold(tmpChannel, thresh)
+            self.spikeIndices[i], self.nspikes[i] = threshold(tmpChannel, thresh)
             self.spikeTimes[i] = self.time_ms[self.spikeIndices[i]]
             self.spikeThresholds[i] = thresh
 
