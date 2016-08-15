@@ -18,11 +18,11 @@ from WillowDataset import WillowDataset
 ################
 
 def willowChanFromSubplotIndex(subplotIndex, probeMap, shank):
-    # here's some mangling that's necessary b.c. pyqtgraph plots subplots
-    #   in column-major order (?), for some reason
-    chansPerRow = max([key[2] for key in probeMap.keys() if type(key) == tuple]) + 1
-    subplotRow = subplotIndex // chansPerRow
-    subplotCol = subplotIndex % chansPerRow
+    # here's some mangling that's necessary b.c. pyqtgraph plots subplots in
+    #   column-major order
+    ncols = probeMap['ncols']
+    subplotRow = subplotIndex // ncols
+    subplotCol = subplotIndex % ncols
     willowChan = probeMap[shank, subplotRow, subplotCol]
     return willowChan
 
@@ -209,7 +209,9 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
         self.shank = shank
         self.impedanceMap = impedanceMap
 
-        self.nchannels = self.probeMap['ncols']*self.probeMap['nrows']
+        self.ncols = self.probeMap['ncols']
+        self.nrows = self.probeMap['nrows']
+        self.nchannels = self.ncols * self.nrows
 
         self.plotItems = []
         self.locked = False
@@ -238,7 +240,7 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
                 plotItem.setXLink(self.plotItems[i-1])
                 plotItem.setYLink(self.plotItems[i-1])
             self.locked = True
-            if (i+1)%2==0:
+            if (i+1)%self.ncols==0:
                 self.nextRow()
 
     def toggleFiltered(self, filtered):
