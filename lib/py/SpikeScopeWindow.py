@@ -36,15 +36,14 @@ class SpikeScopeWindow(QtGui.QWidget):
         self.refreshSpikes()
 
         self.setWindowTitle('Spike Scope: Channel %d' % (self.chan))
-        self.setWindowIcon(QtGui.QIcon('leaflabs_logo.png'))
+        self.setWindowIcon(QtGui.QIcon('../lib/img/leaflabs_logo.png'))
 
     def on_click(self, event):
         if (event.inaxes == self.axes_chanPlot):
             if event.button == 2: # middle-click
                 self.refreshSpikes(thresh='auto')
             elif event.button == 3: # right-click
-                if event.ydata < 0:
-                    self.refreshSpikes(thresh=event.ydata)
+                self.refreshSpikes(thresh=event.ydata)
 
     def createMplPanel(self):
         self.fig = Figure()
@@ -53,7 +52,9 @@ class SpikeScopeWindow(QtGui.QWidget):
         self.canvas.mpl_connect('button_press_event', self.on_click)
 
         self.axes_chanPlot = self.fig.add_subplot(211)
-        self.axes_chanPlot.set_title('Filtered Data: Right Click to Set Threshold, Middle Click for Default')
+        self.axes_chanPlot.set_title('Filtered Data: Right Click to Set '
+                                     'Threshold, Middle Click for Default',
+                                      fontsize=12)
         self.axes_spikeScope = self.fig.add_subplot(212)
 
         self.fig.subplots_adjust(hspace=0.3)
@@ -88,7 +89,8 @@ class SpikeScopeWindow(QtGui.QWidget):
     def doSpikeScope(self):
         self.axes_spikeScope.clear()
         self.axes_spikeScope.set_title('Spike Scope: %d Threshold Crossings'
-                                        % self.dataset.nspikes[self.chan])
+                                        % self.dataset.nspikes[self.chan],
+                                        fontsize=12)
         indices = self.dataset.spikeIndices[self.chan]
         for i in indices:
             try:
