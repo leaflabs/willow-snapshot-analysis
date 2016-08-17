@@ -9,7 +9,7 @@ MICROVOLTS_PER_COUNT = 0.195
 
 def analyzeBuffer(buff):
     buffarray = np.array(buff)
-    maxind = np.argmin(buffarray[:,1])
+    maxind = np.argmax(buffarray[:,1])
     return buff[maxind][0]
 
 def threshold(indata, thresh=None):
@@ -17,17 +17,22 @@ def threshold(indata, thresh=None):
         print 'Threshold not defined, here is min mean and max:'
         print np.min(indata), np.mean(indata), np.max(indata)
     else:
+        # next two lines make the algorithm agnostic of polarity (pos/neg)
+        polarity = -1. if (thresh < 0) else 1.
+        thresh = abs(thresh)
+        # init buffers and counters
         recording = False
         buff = []
         stats = []
         nspikes = 0
-        for i,samp in enumerate(indata):
+        # run over the data
+        for i,samp in enumerate(polarity*indata):
             if not recording:
-                if samp<=thresh:
+                if samp>=thresh:
                     buff.append((i,samp))
                     recording = True
             else:
-                if samp>thresh:
+                if samp<thresh:
                     recording = False
                     stats.append(analyzeBuffer(buff))
                     nspikes += 1
