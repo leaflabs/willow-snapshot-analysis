@@ -385,7 +385,7 @@ if __name__=='__main__':
     snapshot_dir = os.path.dirname(snapshot_filename)
     impedanceFiles = glob.glob(os.path.join(snapshot_dir, 'impedance*.h5'))
     if len(impedanceFiles) > 0:
-        impedance_filename = impedanceFiles[0]
+        impedance_filename = impedanceFiles[-1] # most recent impedance measurement is used
         f = h5py.File(impedance_filename)
         impedanceMap = f['impedanceMeasurements']
     else:
