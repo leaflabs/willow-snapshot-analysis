@@ -44,7 +44,6 @@ class HelpWindow(QtGui.QWidget):
                     "<li>Double-click on a plot to open a SpikeScope window for that channel</li>"
                     "<li>Channel numbers are 0-indexed, and in reference to the 1024-channel Willow dataspace</li>"
                     "<li>y-axes have units of microVolts (uV), x-axes have units of milliseconds (ms)</li>"
-                    "<li>You may wish to adjust some parameters, like the channel offset or probemap file, in the CONFIG section of the main script</li>"
                     "</ul>")
         self.usageLabel = QtGui.QLabel(usageText)
         self.usageLabel.setWordWrap(True)
@@ -64,10 +63,12 @@ class ControlPanel(QtGui.QWidget):
     axesToggled = QtCore.pyqtSignal(bool)
     lockToggled = QtCore.pyqtSignal(bool) 
     defaultSelected = QtCore.pyqtSignal(bool) 
+    impedanceFileSelected = QtCore.pyqtSignal(str) 
 
-    def __init__(self, dataset):
+    def __init__(self, dataset, impedanceFile):
         QtGui.QWidget.__init__(self)
         self.dataset = dataset
+        self.impedanceFile = impedanceFile
 
         self.filterCheckbox = QtGui.QCheckBox('Display Filtered')
         self.filterCheckbox.setChecked(True)
@@ -83,6 +84,14 @@ class ControlPanel(QtGui.QWidget):
         self.lockCheckbox = QtGui.QCheckBox('Lock Plots Together')
         self.lockCheckbox.setChecked(True)
         self.lockCheckbox.stateChanged.connect(self.toggleLock)
+
+        if self.impedanceFile:
+            self.impedanceFileButton = QtGui.QPushButton(
+                                    os.path.basename(self.impedanceFile))
+        else:
+            self.impedanceFileButton = QtGui.QPushButton('(impedance file)')
+        self.impedanceFileButton.setToolTip('Set Impedance File')
+        self.impedanceFileButton.clicked.connect(self.selectImpedanceFile)
 
         self.defaultButton = QtGui.QPushButton()
         self.defaultButton.setIcon(QtGui.QIcon('../lib/img/home.png'))
@@ -104,9 +113,21 @@ class ControlPanel(QtGui.QWidget):
         #self.layout.addWidget(self.spikeDetectCheckbox)
         self.layout.addWidget(self.axesCheckbox)
         self.layout.addWidget(self.lockCheckbox)
+        self.layout.addWidget(self.impedanceFileButton)
         self.layout.addWidget(self.defaultButton)
         self.layout.addWidget(self.helpButton)
         self.setLayout(self.layout)
+
+    def selectImpedanceFile(self):
+        if self.impedanceFile:
+            d = os.path.dirname(self.impedanceFile)
+        else:
+            d = os.path.dirname(self.dataset.filename)
+        filename = QtGui.QFileDialog.getOpenFileName(self, 'Select Impedance File', d)
+        if filename:
+            self.impedanceFile = str(filename)
+            self.impedanceFileButton.setText(os.path.basename(self.impedanceFile))
+            self.impedanceFileSelected.emit(self.impedanceFile)
 
     def restoreDefault(self):
         QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
@@ -181,13 +202,14 @@ class ScrollZoomPanel(QtGui.QScrollArea):
 
 class ClickablePlotItem(pg.PlotItem):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, chan, *args, **kwargs):
         pg.PlotItem.__init__(self, *args, **kwargs)
-        self.chan = -1
+        self.chan = chan
         self.getAxis('left').setStyle(textFillLimits=[(3,0.05)], tickLength=5)
         self.getAxis('bottom').setStyle(tickLength=5)
+        self.setTitle(title='Channel %d' % self.chan)
 
-    def setChannel(self, chan, **kwargs):
+    def setChannel_old(self, chan, **kwargs):
         self.chan = chan
         if 'impedance' in kwargs:
             impedance = kwargs['impedance']
@@ -204,12 +226,11 @@ class ClickablePlotItem(pg.PlotItem):
 
 class MultiPlotWidget(pg.GraphicsLayoutWidget):
 
-    def __init__(self, dataset, probeMap, shank, impedanceMap):
+    def __init__(self, dataset, probeMap, shank, impedanceFile):
         pg.GraphicsLayoutWidget.__init__(self)
         self.dataset = dataset
         self.probeMap = probeMap
         self.shank = shank
-        self.impedanceMap = impedanceMap
 
         self.ncols = self.probeMap['ncols']
         self.nrows = self.probeMap['nrows']
@@ -220,6 +241,7 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
 
         self.initializePlots()
         self.plotFiltered()
+        self.applyImpedanceFile(impedanceFile)
 
         self.defaultHeight = 10000
         self.setDefaultHeight()
@@ -230,11 +252,7 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
     def initializePlots(self):
         for i in range(self.nchannels):
             willowChan = willowChanFromSubplotIndex(i, self.probeMap, self.shank)
-            plotItem = ClickablePlotItem()
-            if self.impedanceMap:
-                plotItem.setChannel(willowChan, impedance=self.impedanceMap[willowChan])
-            else:
-                plotItem.setChannel(willowChan)
+            plotItem = ClickablePlotItem(willowChan)
             plotItem.setDataset(self.dataset) # TODO better way?
             self.addItem(plotItem)
             self.plotItems.append(plotItem)
@@ -244,6 +262,16 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
             self.locked = True
             if (i+1)%self.ncols==0:
                 self.nextRow()
+
+    def applyImpedanceFile(self, impedanceFile):
+        self.impedanceFile = str(impedanceFile) if impedanceFile else False
+        if self.impedanceFile:
+            f = h5py.File(self.impedanceFile)
+            impedanceMap = f['impedanceMeasurements']
+            for plotItem in self.plotItems:
+                willowChan = plotItem.chan
+                impedance = impedanceMap[willowChan]
+                plotItem.setTitle(title='Ch %d, Z = %.2f k' % (willowChan, impedance/1000.))
 
     def toggleFiltered(self, filtered):
         self.clearAll()
@@ -290,18 +318,18 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
             plotItem.clear()
 
     def plotFiltered(self):
-        for i,plot in enumerate(self.plotItems):
+        for i,plotItem in enumerate(self.plotItems):
             willowChan = willowChanFromSubplotIndex(i, self.probeMap, self.shank)
-            plot.plot(x=self.dataset.time_ms, y=self.dataset.data_uv_filtered[willowChan,:],
+            plotItem.plot(x=self.dataset.time_ms, y=self.dataset.data_uv_filtered[willowChan,:],
                         pen=(143,219,144))
-            plot.setYRange(self.dataset.dataMin_filtered, self.dataset.dataMax_filtered, padding=0.9)
+            plotItem.setYRange(self.dataset.dataMin_filtered, self.dataset.dataMax_filtered, padding=0.9)
 
     def plotRaw(self):
-        for i,plot in enumerate(self.plotItems):
+        for i,plotItem in enumerate(self.plotItems):
             willowChan = willowChanFromSubplotIndex(i, self.probeMap, self.shank)
-            plot.plot(x=self.dataset.time_ms, y=self.dataset.data_uv[willowChan,:],
+            plotItem.plot(x=self.dataset.time_ms, y=self.dataset.data_uv[willowChan,:],
                         pen=(143,219,144))
-            plot.setYRange(self.dataset.dataMin, self.dataset.dataMax, padding=0.9)
+            plotItem.setYRange(self.dataset.dataMin, self.dataset.dataMax, padding=0.9)
 
     def setDefaultRange(self, filtered=True):
         self.setDefaultHeight()
@@ -315,6 +343,9 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
                 plotItem.setXRange(self.dataset.timeMin, self.dataset.timeMax)
                 plotItem.setYRange(dataMin, dataMax, padding=0.9)
 
+    def setImpedanceFile(self, impedanceFile):
+        pass
+
     def wheelEvent(self, ev):
         # this overrides the wheelEvent behavior
         if ev.modifiers() == QtCore.Qt.ControlModifier:
@@ -324,8 +355,17 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
 
 class ShankPlotWindow(QtGui.QWidget):
 
-    def __init__(self, dataset, probeMap, shank, impedanceMap):
+    def __init__(self, dataset, probeMap, shank):
         QtGui.QWidget.__init__(self)
+
+        # look for impedance files in the snapshot directory
+        snapshotFilename = dataset.filename
+        snapshotDir = os.path.dirname(snapshotFilename)
+        impedanceFiles = glob.glob(os.path.join(snapshotDir, 'impedance*.h5'))
+        if len(impedanceFiles) > 0:
+            impedanceFile = impedanceFiles[-1] # most recent impedance measurement is used
+        else:
+            impedanceFile = False
 
         # filter data, find min and max for *this shank's channels only*
         shankChannels = []
@@ -337,9 +377,9 @@ class ShankPlotWindow(QtGui.QWidget):
         dataset.dataMin_filtered = np.min(dataset.data_uv_filtered[shankChannels,:])
         dataset.dataMax_filtered = np.max(dataset.data_uv_filtered[shankChannels,:])
 
-        self.multiPlotWidget = MultiPlotWidget(dataset, probeMap, shank, impedanceMap)
+        self.multiPlotWidget = MultiPlotWidget(dataset, probeMap, shank, impedanceFile)
 
-        self.controlPanel = ControlPanel(dataset)
+        self.controlPanel = ControlPanel(dataset, impedanceFile)
         self.scrollZoomPanel = ScrollZoomPanel(self.multiPlotWidget)
 
         # signal connections
@@ -348,6 +388,7 @@ class ShankPlotWindow(QtGui.QWidget):
         self.controlPanel.spikesToggled.connect(self.multiPlotWidget.toggleSpikes)
         self.controlPanel.axesToggled.connect(self.multiPlotWidget.toggleAxes)
         self.controlPanel.defaultSelected.connect(self.multiPlotWidget.setDefaultRange)
+        self.controlPanel.impedanceFileSelected.connect(self.multiPlotWidget.applyImpedanceFile)
 
         layout = QtGui.QVBoxLayout()
         layout.addWidget(self.controlPanel)
@@ -382,20 +423,10 @@ if __name__=='__main__':
 
     probeMap = pickle.load(open(probeMap_filename, 'rb')) # (shank, col, row) : willowChan
 
-    snapshot_dir = os.path.dirname(snapshot_filename)
-    impedanceFiles = glob.glob(os.path.join(snapshot_dir, 'impedance*.h5'))
-    if len(impedanceFiles) > 0:
-        impedance_filename = impedanceFiles[-1] # most recent impedance measurement is used
-        f = h5py.File(impedance_filename)
-        impedanceMap = f['impedanceMeasurements']
-    else:
-        impedanceMap = False
-
-    print 'impedanceMap = ', impedanceMap
 
     ####
 
     app = QtGui.QApplication(sys.argv)
-    mainWindow = ShankPlotWindow(dataset, probeMap, shank, impedanceMap)
+    mainWindow = ShankPlotWindow(dataset, probeMap, shank)
     mainWindow.show()
     app.exec_()
