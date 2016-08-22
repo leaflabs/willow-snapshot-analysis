@@ -17,14 +17,14 @@ from WillowDataset import WillowDataset
 
 ################
 
-def willowChanFromSubplotIndex(subplotIndex, probeMap, shank):
+def subplotIndex2rowColChan(subplotIndex, probeMap, shank):
     # here's some mangling that's necessary b.c. pyqtgraph plots subplots in
     #   column-major order
     ncols = probeMap['ncols']
-    subplotRow = subplotIndex // ncols
-    subplotCol = subplotIndex % ncols
-    willowChan = probeMap[shank, subplotRow, subplotCol]
-    return willowChan
+    row = subplotIndex // ncols
+    col = subplotIndex % ncols
+    willowChan = probeMap[shank, row, col]
+    return row, col, willowChan
 
 ####
 # main widget classes
@@ -193,13 +193,15 @@ class ScrollZoomPanel(QtGui.QScrollArea):
 
 class ClickablePlotItem(pg.PlotItem):
 
-    def __init__(self, dataset, chan, *args, **kwargs):
+    def __init__(self, dataset, chan, row, col, *args, **kwargs):
         pg.PlotItem.__init__(self, *args, **kwargs)
         self.dataset = dataset
         self.chan = chan
+        self.row = row
+        self.col = col
         self.getAxis('left').setStyle(textFillLimits=[(3,0.05)], tickLength=5)
         self.getAxis('bottom').setStyle(tickLength=5)
-        self.setTitle(title='Channel %d' % self.chan)
+        self.setTitle(title='Row %d, Col %d, Chan %d' % (self.row, self.col, self.chan))
 
     def mouseDoubleClickEvent(self, event):
         self.spikeScopeWindow = SpikeScopeWindow(self.dataset, self.chan)
@@ -246,8 +248,8 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
 
     def initializePlots(self):
         for i in range(self.nchannels):
-            willowChan = willowChanFromSubplotIndex(i, self.probeMap, self.shank)
-            plotItem = ClickablePlotItem(self.dataset, willowChan)
+            row, col, willowChan = subplotIndex2rowColChan(i, self.probeMap, self.shank)
+            plotItem = ClickablePlotItem(self.dataset, willowChan, row, col)
             self.addItem(plotItem)
             self.plotItems.append(plotItem)
             if i>=1: # link all plots together # TODO better way?
@@ -265,12 +267,13 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
             for plotItem in self.plotItems:
                 willowChan = plotItem.chan
                 impedance = impedanceMap[willowChan]
-                if (impedance > 1e6) or (impedance < 1e5): # tweak this range as neeeded
+                if ((impedance > 1e6) or (impedance < 1e5)): # tweak this range as neeeded
                     if self.filtered:
                         plotItem.plotFiltered(dim=True)
                     else:
                         plotItem.plotRaw(dim=True)
-                plotItem.setTitle(title='Ch %d, Z = %.2f k' % (willowChan, impedance/1000.))
+                plotItem.setTitle(title='Row %d, Col %d, Chan %d, Z = %.2f k' %
+                                    (plotItem.row, plotItem.col, willowChan, impedance/1000.))
 
     def toggleFiltered(self, filtered):
         if filtered:
