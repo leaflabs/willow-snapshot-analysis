@@ -68,4 +68,3 @@ class PlaybackDialog(QtGui.QDialog):
         else:
             params['probeMapPath'] = None
         return params
-

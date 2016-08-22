@@ -681,7 +681,7 @@ class ChipCanvas(app.Canvas):
                 self.reportLocation(plot)
             else:
                 self.selected_plots.remove(plot)
-                self.parent.setPlotLabel(None)
+                self.reportLocation(None)
         else:
             # focus only plot most recently clicked when Ctrl not held down
             if plot not in self.selected_plots:
@@ -689,7 +689,7 @@ class ChipCanvas(app.Canvas):
                 self.reportLocation(plot)
             else:
                 self.selected_plots = []
-                self.parent.setPlotLabel(None)
+                self.reportLocation(None)
         self.focusPlots()
         self.update()
 
