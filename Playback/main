@@ -8,6 +8,7 @@ from PyQt4 import QtCore, QtGui
 import os, sys
 import numpy as np
 import scipy.signal as signal
+import pickle
 import itertools
 import warnings
 
@@ -37,6 +38,12 @@ class PlaybackWindow(QtGui.QWidget):
 
         self.impedance = impedanceMap
         self.display_impedance = True if self.impedance != None else False
+
+        if params['probeMapPath'] != None:
+            self.probeMap = pickle.load(open(params['probeMapPath'], 
+                                             'rb')) # (shank, col, row): channel
+        else:
+            self.probeMap = None
 
         ymin = -6390
         ymax = 6390
@@ -136,8 +143,16 @@ class PlaybackWindow(QtGui.QWidget):
         else:
             self.buttonPanel.setMaximumWidth(800)
 
+        self.labels = QtGui.QWidget()
         self.infoLabel = QtGui.QLabel()
         self.infoLabel.setMaximumHeight(60)
+        if self.probeMap != None:
+            self.plotLabel = QtGui.QLabel()
+            self.plotLabel.setMaximumHeight(60)
+        self.labelLayout = QtGui.QHBoxLayout()
+        self.labelLayout.addWidget(self.infoLabel)
+        self.labelLayout.addWidget(self.plotLabel)
+        self.labels.setLayout(self.labelLayout)
 
         #########################
         # vispy plotting stuff
@@ -163,7 +178,7 @@ class PlaybackWindow(QtGui.QWidget):
 
         self.layout = QtGui.QVBoxLayout()
         self.layout.addWidget(self.buttonPanel)
-        self.layout.addWidget(self.infoLabel)
+        self.layout.addWidget(self.labels)
         self.layout.addWidget(self.canvas.native)
 
         self.setLayout(self.layout)
@@ -203,6 +218,17 @@ class PlaybackWindow(QtGui.QWidget):
         self.infoLabel.setText('Chip %d: xrange = %3.2f ms, yrange = %3.2f uV\n'
                                 '(ctrl+mousewheel zooms horizontally, ctrl+shift+mousewheel zooms vertically)'
                                         % (self.chip, xr, yr))
+
+    def setPlotLabel(self, chan):
+        if self.probeMap != None:
+            if chan != None:
+                for key, value in self.probeMap.items():
+                    if value == chan and isinstance(key, tuple):
+                        (shank, row, col) = key
+                self.plotLabel.setText('Channel %d selected\n'
+                    '(shank %d, row %d, column %d)' % (chan, shank, row, col))
+            else:
+                self.plotLabel.setText('')
 
     def getNewData(self):
         if self.plot_range[1] < self.dataset.sampleRange[1]:
@@ -463,7 +489,7 @@ class ChipCanvas(app.Canvas):
         # labels around plots
         self.label_visual = None
 
-        # axis to be drawn around plot mouse clicks on
+        # selected plots that the user clicks on
         self.selected_plots = []
 
         super(ChipCanvas, self).__init__(app='pyqt4',
@@ -510,13 +536,21 @@ class ChipCanvas(app.Canvas):
         self.border_collection['viewport'] = 0, 0, self.physical_size[0], self.physical_size[1]
         self.border_collection['color'] = (1.0, 1.0, 1.0, 1.0)
 
+    def reportLocation(self, plot):
+        if plot != None:
+            plot_x, plot_y = plot
+            chan_idx = plot_y*ncols + plot_x + nchans*self.parent.chip
+            self.parent.setPlotLabel(chan_idx)
+        else:
+            self.parent.setPlotLabel(None)
+
     def createLabels(self):
         texts = []
         poses = []
         a = (self.physical_size[0]/ncols, self.physical_size[1]/nrows)
         font_size = 8
         for (x,y) in self.subplot_indices:
-            chan_idx = y*ncols + x + 32*self.parent.chip
+            chan_idx = y*ncols + x + nchans*self.parent.chip
             texts.append(' Channel {c}'.format(c=chan_idx))
             poses.append((a[0]*x, a[1]*(y+0.125)))
             if self.parent.display_impedance:
@@ -615,6 +649,9 @@ class ChipCanvas(app.Canvas):
         elif 'Control' in event.modifiers:
             scale_x_new, scale_y_new = (max(1, scale_x*np.exp(2.5*d)),
                                         max(1, scale_y*np.exp(0.0*d)))
+        else:
+            return
+
         # constrain scale factors
         range_x_new = self.nsamps/(30*scale_x_new)
         if range_x_new < self.parent.frame_period:
@@ -641,14 +678,18 @@ class ChipCanvas(app.Canvas):
             # focus multiple subplots when Ctrl held down
             if plot not in self.selected_plots:
                 self.selected_plots.append(plot)
+                self.reportLocation(plot)
             else:
                 self.selected_plots.remove(plot)
+                self.parent.setPlotLabel(None)
         else:
             # focus only plot most recently clicked when Ctrl not held down
             if plot not in self.selected_plots:
                 self.selected_plots = [plot]
+                self.reportLocation(plot)
             else:
                 self.selected_plots = []
+                self.parent.setPlotLabel(None)
         self.focusPlots()
         self.update()
 
@@ -656,14 +697,15 @@ if __name__=='__main__':
     import sys
     from PlaybackDialog import PlaybackDialog
     if len(sys.argv) < 2:
-        print 'Need location of a Willow snapshot or experiment as a command-line argument.'
+        print 'Usage: ./main <snapshot_filename.h5>'
         sys.exit(1)
     else:
-        filename = sys.argv[1]
-        dataset = WillowDataset(filename, -1)
+        snapshot_filename = sys.argv[1]
+        dataset = WillowDataset(snapshot_filename, -1)
         dataset.importData()
 
-    snapshot_dir = os.path.dirname(filename)
+
+    snapshot_dir = os.path.dirname(snapshot_filename)
     impedanceFiles = glob.glob(os.path.join(snapshot_dir, 'impedance*.h5'))
     if len(impedanceFiles) > 0:
         impedance_filename = impedanceFiles[0]
