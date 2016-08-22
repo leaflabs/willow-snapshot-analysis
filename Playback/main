@@ -201,7 +201,7 @@ class PlaybackWindow(QtGui.QWidget):
 
     def setInfoLabel(self, xr, yr):
         self.infoLabel.setText('Chip %d: xrange = %3.2f ms, yrange = %3.2f uV\n'
-                                '(mousewheel zooms horizontally, ctrl+mousewheel zooms vertically)'
+                                '(ctrl+mousewheel zooms horizontally, ctrl+shift+mousewheel zooms vertically)'
                                         % (self.chip, xr, yr))
 
     def getNewData(self):
@@ -609,10 +609,10 @@ class ChipCanvas(app.Canvas):
     def on_mouse_wheel(self, event):
         d = np.sign(event.delta[1]) * .05
         scale_x, scale_y = self._program['u_scale']
-        if 'Control' in event.modifiers:
+        if 'Control' and 'Shift' in event.modifiers:
             scale_x_new, scale_y_new = (max(1, scale_x*np.exp(0.0*d)),
                                         max(1, scale_y*np.exp(2.5*d)))
-        else:
+        elif 'Control' in event.modifiers:
             scale_x_new, scale_y_new = (max(1, scale_x*np.exp(2.5*d)),
                                         max(1, scale_y*np.exp(0.0*d)))
         # constrain scale factors
