@@ -59,7 +59,6 @@ class HelpWindow(QtGui.QWidget):
 class ControlPanel(QtGui.QWidget):
 
     filterToggled = QtCore.pyqtSignal(bool)
-    spikesToggled = QtCore.pyqtSignal(bool)
     axesToggled = QtCore.pyqtSignal(bool)
     lockToggled = QtCore.pyqtSignal(bool) 
     defaultSelected = QtCore.pyqtSignal(bool) 
@@ -73,9 +72,6 @@ class ControlPanel(QtGui.QWidget):
         self.filterCheckbox = QtGui.QCheckBox('Display Filtered')
         self.filterCheckbox.setChecked(True)
         self.filterCheckbox.stateChanged.connect(self.toggleFiltered)
-
-        self.spikeDetectCheckbox = QtGui.QCheckBox('Display Spikes')
-        self.spikeDetectCheckbox.stateChanged.connect(self.toggleSpikes)
 
         self.axesCheckbox = QtGui.QCheckBox('Display Axes')
         self.axesCheckbox.setChecked(True)
@@ -145,11 +141,6 @@ class ControlPanel(QtGui.QWidget):
         self.filterToggled.emit(self.filterCheckbox.isChecked())
         QtGui.QApplication.restoreOverrideCursor()
 
-    def toggleSpikes(self):
-        QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        self.spikesToggled.emit(self.spikeDetectCheckbox.isChecked())
-        QtGui.QApplication.restoreOverrideCursor()
-
     def toggleAxes(self):
         QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         self.axesToggled.emit(self.axesCheckbox.isChecked())
@@ -202,27 +193,31 @@ class ScrollZoomPanel(QtGui.QScrollArea):
 
 class ClickablePlotItem(pg.PlotItem):
 
-    def __init__(self, chan, *args, **kwargs):
+    def __init__(self, dataset, chan, *args, **kwargs):
         pg.PlotItem.__init__(self, *args, **kwargs)
+        self.dataset = dataset
         self.chan = chan
         self.getAxis('left').setStyle(textFillLimits=[(3,0.05)], tickLength=5)
         self.getAxis('bottom').setStyle(tickLength=5)
         self.setTitle(title='Channel %d' % self.chan)
 
-    def setChannel_old(self, chan, **kwargs):
-        self.chan = chan
-        if 'impedance' in kwargs:
-            impedance = kwargs['impedance']
-            self.setTitle(title='Ch %d, Z = %.2f k' % (self.chan, impedance/1000.))
-        else:
-            self.setTitle(title='Channel %d' % self.chan)
-
-    def setDataset(self, dataset):
-        self.dataset = dataset
-
     def mouseDoubleClickEvent(self, event):
         self.spikeScopeWindow = SpikeScopeWindow(self.dataset, self.chan)
         self.spikeScopeWindow.show()
+
+    def plotRaw(self, dim=False):
+        self.clear()
+        pen = 0.2 if dim else (143,219,144)
+        self.plot(x=self.dataset.time_ms, y=self.dataset.data_uv[self.chan,:],
+                    pen=pen)
+        self.setYRange(self.dataset.dataMin, self.dataset.dataMax, padding=0.9)
+
+    def plotFiltered(self, dim=False):
+        self.clear()
+        pen = 0.2 if dim else (143,219,144)
+        self.plot(x=self.dataset.time_ms, y=self.dataset.data_uv_filtered[self.chan,:],
+                    pen=pen)
+        self.setYRange(self.dataset.dataMin_filtered, self.dataset.dataMax_filtered, padding=0.9)
 
 class MultiPlotWidget(pg.GraphicsLayoutWidget):
 
@@ -252,8 +247,7 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
     def initializePlots(self):
         for i in range(self.nchannels):
             willowChan = willowChanFromSubplotIndex(i, self.probeMap, self.shank)
-            plotItem = ClickablePlotItem(willowChan)
-            plotItem.setDataset(self.dataset) # TODO better way?
+            plotItem = ClickablePlotItem(self.dataset, willowChan)
             self.addItem(plotItem)
             self.plotItems.append(plotItem)
             if i>=1: # link all plots together # TODO better way?
@@ -271,20 +265,28 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
             for plotItem in self.plotItems:
                 willowChan = plotItem.chan
                 impedance = impedanceMap[willowChan]
+                if (impedance > 1e6) or (impedance < 1e5): # tweak this range as neeeded
+                    if self.filtered:
+                        plotItem.plotFiltered(dim=True)
+                    else:
+                        plotItem.plotRaw(dim=True)
                 plotItem.setTitle(title='Ch %d, Z = %.2f k' % (willowChan, impedance/1000.))
 
     def toggleFiltered(self, filtered):
-        self.clearAll()
         if filtered:
             self.plotFiltered()
         else:
             self.plotRaw()
 
-    def toggleSpikes(self, spikes):
-        if spikes:
-            pass
-        else:
-            pass
+    def plotRaw(self):
+        for plotItem in self.plotItems:
+            plotItem.plotRaw()
+        self.filtered = False
+
+    def plotFiltered(self):
+        for plotItem in self.plotItems:
+            plotItem.plotFiltered()
+        self.filtered = True
 
     def toggleAxes(self, axes):
         for plotItem in self.plotItems:
@@ -302,34 +304,6 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
                 plotItem.setXLink(None)
                 plotItem.setYLink(None)
         self.locked = lock
-
-    def overlaySpikes(self):
-        for i,plot in enumerate(self.plotItems):
-            willowChan = willowChanFromSubplotIndex(i, self.probeMap, self.shank)
-            plot.addLine(x=self.dataset.spikeTimes[willowChan][0])
-            #for spikeTime in self.dataset.spikeTimes[willowChan]:
-            #    plot.addLine(x=spikeTime)
-
-    def removeSpikes(self):
-        pass # TODO
-
-    def clearAll(self):
-        for plotItem in self.plotItems:
-            plotItem.clear()
-
-    def plotFiltered(self):
-        for i,plotItem in enumerate(self.plotItems):
-            willowChan = willowChanFromSubplotIndex(i, self.probeMap, self.shank)
-            plotItem.plot(x=self.dataset.time_ms, y=self.dataset.data_uv_filtered[willowChan,:],
-                        pen=(143,219,144))
-            plotItem.setYRange(self.dataset.dataMin_filtered, self.dataset.dataMax_filtered, padding=0.9)
-
-    def plotRaw(self):
-        for i,plotItem in enumerate(self.plotItems):
-            willowChan = willowChanFromSubplotIndex(i, self.probeMap, self.shank)
-            plotItem.plot(x=self.dataset.time_ms, y=self.dataset.data_uv[willowChan,:],
-                        pen=(143,219,144))
-            plotItem.setYRange(self.dataset.dataMin, self.dataset.dataMax, padding=0.9)
 
     def setDefaultRange(self, filtered=True):
         self.setDefaultHeight()
@@ -385,7 +359,6 @@ class ShankPlotWindow(QtGui.QWidget):
         # signal connections
         self.controlPanel.filterToggled.connect(self.multiPlotWidget.toggleFiltered)
         self.controlPanel.lockToggled.connect(self.multiPlotWidget.toggleLock)
-        self.controlPanel.spikesToggled.connect(self.multiPlotWidget.toggleSpikes)
         self.controlPanel.axesToggled.connect(self.multiPlotWidget.toggleAxes)
         self.controlPanel.defaultSelected.connect(self.multiPlotWidget.setDefaultRange)
         self.controlPanel.impedanceFileSelected.connect(self.multiPlotWidget.applyImpedanceFile)
