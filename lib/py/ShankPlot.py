@@ -38,8 +38,8 @@ class HelpWindow(QtGui.QWidget):
                     "<ul>"
                     "<li>Mousewheel scrolls through probe-mapped channels</li>"
                     "<li>Ctrl-Plus and Ctrl-Minus expands or contracts the plot canvas vertically</li>"
-                    "<li>Ctrl-Mousewheel over a plot zooms isometrically</li>"
-                    "<li>Ctrl-Mousewheel over an axis zooms in that dimension</li>"
+                    "<li>Ctrl-Mousewheel over a plot zooms horizontally</li>"
+                    "<li>Ctrl-Shift-Mousewheel over a plot zooms vertically</li>"
                     "<li>By default, all plot axes are locked together. To unlock them, uncheck the 'Lock Plots Together' box in the control panel</li>"
                     "<li>Double-click on a plot to open a SpikeScope window for that channel</li>"
                     "<li>Channel numbers are 0-indexed, and in reference to the 1024-channel Willow dataspace</li>"
@@ -195,6 +195,7 @@ class ClickablePlotItem(pg.PlotItem):
 
     def __init__(self, dataset, chan, row, col, *args, **kwargs):
         pg.PlotItem.__init__(self, *args, **kwargs)
+
         self.dataset = dataset
         self.chan = chan
         self.row = row
@@ -202,6 +203,11 @@ class ClickablePlotItem(pg.PlotItem):
         self.getAxis('left').setStyle(textFillLimits=[(3,0.05)], tickLength=5)
         self.getAxis('bottom').setStyle(tickLength=5)
         self.setTitle(title='Row %d, Col %d, Chan %d' % (self.row, self.col, self.chan))
+
+        # install event filter for viewbox and axes items
+        self.vb.installEventFilter(self)
+        for axesDict in self.axes.values():
+            axesDict['item'].installEventFilter(self)
 
     def mouseDoubleClickEvent(self, event):
         self.spikeScopeWindow = SpikeScopeWindow(self.dataset, self.chan)
@@ -220,6 +226,19 @@ class ClickablePlotItem(pg.PlotItem):
         self.plot(x=self.dataset.time_ms, y=self.dataset.data_uv_filtered[self.chan,:],
                     pen=pen)
         self.setYRange(self.dataset.dataMin_filtered, self.dataset.dataMax_filtered, padding=0.9)
+
+    def eventFilter(self, target, ev):
+        if ev.type() == QtCore.QEvent.GraphicsSceneWheel:
+            if ev.modifiers() == QtCore.Qt.ControlModifier:
+                print 'ctrl-wheel'
+                self.axes['bottom']['item'].wheelEvent(ev)
+            elif ev.modifiers() == (QtCore.Qt.ControlModifier | QtCore.Qt.ShiftModifier):
+                print 'ctrl-shift-wheel'
+                self.axes['left']['item'].wheelEvent(ev)
+            else:
+                print 'wheel'
+            return True
+        return False
 
 class MultiPlotWidget(pg.GraphicsLayoutWidget):
 
@@ -326,6 +345,8 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
     def wheelEvent(self, ev):
         # this overrides the wheelEvent behavior
         if ev.modifiers() == QtCore.Qt.ControlModifier:
+            return pg.GraphicsLayoutWidget.wheelEvent(self, ev)
+        elif ev.modifiers() == (QtCore.Qt.ControlModifier | QtCore.Qt.ShiftModifier):
             return pg.GraphicsLayoutWidget.wheelEvent(self, ev)
         else:
             ev.ignore() # propagate event to parent (scrollzoompanel)
