@@ -1,0 +1,19 @@
+#!/usr/bin/python
+
+import sys, subprocess
+
+if __name__=='__main__':
+    if len(sys.argv)<2:
+        print 'Usage: ./main <snapshot_filename.h5>'
+        sys.exit(1)
+    else:
+        filename = sys.argv[1]
+
+    subprocs = []
+    for i in range(5):
+        subprocs.append(subprocess.Popen(['../lib/py/ShankPlot.py', filename,
+                        'probeMap_256_P41_level2_canonical.p', str(i)]))
+
+    # wait for child processes to finish
+    for subproc in subprocs:
+        subproc.wait()
