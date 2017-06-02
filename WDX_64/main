@@ -1,0 +1,146 @@
+#!/usr/bin/python
+
+import sys, os
+sys.path.append(os.path.abspath('../lib/py'))
+
+from PyQt4 import QtCore, QtGui
+
+import numpy as np
+
+from PlotMatrix import PlotMatrix
+from TimeScrubber import TimeScrubber
+from ProbeMap64 import ProbeMap64
+
+from WillowDataset import WillowDataset
+
+import cPickle
+
+
+class WDX_64(QtGui.QWidget):
+
+    def __init__(self, filename):
+        QtGui.QWidget.__init__(self)
+
+        self.probeMap_dict = cPickle.load(open('probeMap_64_level2_canonical.p', 'rb'))
+        self.channel_map = []
+        for row in range(32):
+            for col in range(2):
+                self.channel_map.append(self.probeMap_dict[0, row, col])
+
+        self.dataset = WillowDataset(filename)
+        if self.dataset.nsamples > 300000:
+            initRange = [0,30000]
+        else:
+            initRange = [0,self.dataset.nsamples/10]
+
+        # widgets
+        self.probeMap = ProbeMap64(300, "WDX_Probe_64.png")
+
+        self.timeScrubber = TimeScrubber(self.dataset.nsamples, initRange=initRange)
+
+        self.plotMatrix = PlotMatrix(4, 2)
+        self.plotMatrix.setAllTitles('willowChan = xxxx')
+
+        # layout
+        topLayout = QtGui.QHBoxLayout()
+        topLayout.addWidget(self.probeMap)
+        topLayout.addWidget(self.timeScrubber)
+
+        botLayout = QtGui.QVBoxLayout()
+        botLayout.addLayout(topLayout)
+        botLayout.addWidget(self.plotMatrix)
+
+        self.setLayout(botLayout)
+
+        # window and margin settings
+        self.setWindowTitle('Willow Data Explorer')
+        self.resize(1400,800)
+
+        self.timeScrubber.timeRangeSelected.connect(self.handleTimeSelection)
+        self.probeMap.dragAndDropAccepted.connect(self.handleChanSelection)
+
+        # this is used to keep track of which channels (if any) are on which subplots
+        self.chanLedger = {}
+        for i in range(8):
+            self.chanLedger[i] = None
+
+        self.filtered = False
+
+        self.timeScrubber.bang()
+        self.probeMap.decrement()
+
+    def handleTimeSelection(self, start, stop):
+        QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        self.dataset.importSlice(start,stop)
+        self.dataset.filterAndCalculateActivitySlice()
+        self.probeMap.setActivity(self.dataset.slice_activity[self.channel_map].reshape((32,2), order='C'))
+        self.plotMatrix.setXRange(0, self.dataset.slice_nsamples/30.)
+        if self.filtered:
+            self.plotMatrix.setYRange(self.dataset.slice_min, self.dataset.slice_max)
+        else:
+            self.plotMatrix.setYRange(self.dataset.slice_min, self.dataset.slice_max)
+        self.updateAllPlots()
+        QtGui.QApplication.restoreOverrideCursor()
+
+    def handleChanSelection(self, shank, row, column):
+        for i in range(4):
+            for j in range(2):
+                willowChan = self.probeMap_dict[shank, row + i, column + j]
+                self.setPlotChan(i * 2 + j, willowChan)
+                self.chanLedger[i * 2 + j] = willowChan
+
+    def setPlotChan(self, subplotIndex, willowChan):
+        x = np.arange(self.dataset.slice_nsamples)/30.
+        if self.filtered:
+            y = self.dataset.slice_filtered[willowChan,:]
+        else:
+            y = self.dataset.slice_uv[willowChan,:]
+        self.plotMatrix.setPlotData(subplotIndex, x, y)
+        self.plotMatrix.setPlotTitle(subplotIndex, 'willowChan = %.4d' % willowChan)
+
+    def updateAllPlots(self):
+        """
+        call this after updating the time slice, or filtered state.
+        to set a single plot's channel use setPlotChan instead
+        """
+        for subplotIndex, willowChan in self.chanLedger.items():
+            if willowChan:
+                self.setPlotChan(subplotIndex, willowChan)
+
+    def keyPressEvent(self, event):
+        if event.key() == QtCore.Qt.Key_F11:
+            if self.windowState() & QtCore.Qt.WindowFullScreen:
+                self.showNormal()
+            else:
+                self.showFullScreen()
+
+        elif event.key() == QtCore.Qt.Key_Up:
+            self.probeMap.decrement()
+        elif event.key() == QtCore.Qt.Key_Down:
+            self.probeMap.increment()
+
+        elif event.key() == QtCore.Qt.Key_Right:
+            self.timeScrubber.increment()
+        elif event.key() == QtCore.Qt.Key_Left:
+            self.timeScrubber.decrement()
+
+        elif event.key() == QtCore.Qt.Key_Escape:
+                self.showNormal()
+
+        elif event.key() == QtCore.Qt.Key_F:
+            self.filtered = not self.filtered
+            self.updateAllPlots()
+
+        elif event.key() == QtCore.Qt.Key_Home:
+            self.plotMatrix.home()
+
+if __name__=='__main__':
+    if len(sys.argv)>1:
+        filename = sys.argv[1]
+    else:
+        print 'Usage: $ ./main <filename.h5>'
+        sys.exit(1)
+    app = QtGui.QApplication(sys.argv)
+    wdx_64 = WDX_64(filename)
+    wdx_64.show()
+    sys.exit(app.exec_())
