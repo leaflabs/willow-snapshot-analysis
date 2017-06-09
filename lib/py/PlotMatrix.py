@@ -70,7 +70,7 @@ class PlotMatrix(pg.GraphicsLayoutWidget):
                 plotItem.setYLink(self.plotItems[subplotIndex-1])
             self.addItem(plotItem)
             self.plotItems.append(plotItem)
-            if subplotIndex % 2 == 1:
+            if subplotIndex % self.ncols == self.ncols - 1:
                 self.nextRow()
 
     def setPlotData(self, subplotIndex, x, y):
