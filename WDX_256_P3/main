@@ -59,7 +59,7 @@ class WDX_256_P3(QtGui.QWidget):
         self.setLayout(botLayout)
 
         # window and margin settings
-        self.setWindowTitle('Willow Data Explorer')
+        self.setWindowTitle('Willow Data Explorer (%s)' % self.dataset.filename)
         self.resize(1400,800)
 
         self.timeScrubber.timeRangeSelected.connect(self.handleTimeSelection)

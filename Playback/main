@@ -184,7 +184,7 @@ class PlaybackWindow(QtGui.QWidget):
 
         self.setLayout(self.layout)
 
-        self.setWindowTitle('Willow Recorded Playback')
+        self.setWindowTitle('Willow Recorded Playback (%s)' % self.dataset.filename)
 
 
     def toggleFiltering(self, checkbox_state):

@@ -35,7 +35,8 @@ class SpikeScopeWindow(QtGui.QWidget):
         self.plotData()
         self.refreshSpikes()
 
-        self.setWindowTitle('Spike Scope: Channel %d' % (self.chan))
+        self.setWindowTitle('Spike Scope: Channel %d (%s)' % (self.chan,
+                            self.dataset.filename))
         self.setWindowIcon(QtGui.QIcon('../lib/img/leaflabs_logo.png'))
 
     def on_click(self, event):
