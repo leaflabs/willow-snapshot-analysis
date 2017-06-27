@@ -124,7 +124,7 @@ if __name__=='__main__':
         sys.exit(1)
     else:
         filename = sys.argv[1]
-        dataset = WillowDataset(filename, -1)
+        dataset = WillowDataset(filename)
     app = QtGui.QApplication(sys.argv)
     dataset.importData()
     rasterGPIO0 = RasterGPIO(dataset, 0)

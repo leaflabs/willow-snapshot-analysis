@@ -415,7 +415,7 @@ if __name__=='__main__':
         else:
             shank = int(sys.argv[3])
 
-    dataset = WillowDataset(snapshot_filename, -1)
+    dataset = WillowDataset(snapshot_filename)
     dataset.importData()
 
     probeMap = pickle.load(open(probeMap_filename, 'rb')) # (shank, col, row) : willowChan

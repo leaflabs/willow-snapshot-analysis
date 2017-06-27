@@ -773,7 +773,7 @@ if __name__=='__main__':
         sys.exit(1)
     else:
         snapshot_filename = sys.argv[1]
-        dataset = WillowDataset(snapshot_filename, -1)
+        dataset = WillowDataset(snapshot_filename)
         dataset.importData()
 
 
