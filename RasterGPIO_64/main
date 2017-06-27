@@ -120,8 +120,8 @@ class RasterGPIO(QtGui.QWidget):
 
 if __name__=='__main__':
     if len(sys.argv)<2:
-        filename = '/home/chrono/neuro/data/hasenstaub/64chan/snapshot_20151123-195046_stimulus.h5'
-        dataset = WillowDataset(filename, [0,30000])
+        print 'Please provide a snapshot file as an argument.'
+        sys.exit(1)
     else:
         filename = sys.argv[1]
         dataset = WillowDataset(filename, -1)

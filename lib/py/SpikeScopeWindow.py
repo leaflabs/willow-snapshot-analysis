@@ -108,7 +108,7 @@ if __name__=='__main__':
     app = QtGui.QApplication(sys.argv)
     filename = str(QtGui.QFileDialog.getOpenFileName(None, 'Select Data File', '/home/chrono/leafyles/neuro'))
     if filename:
-        dataset = WillowDataset(filename, [0,29999])
+        dataset = WillowDataset(filename)
         dataset.importData()
         spikeScopeWindow = SpikeScopeWindow(dataset, 166)
         spikeScopeWindow.show()
