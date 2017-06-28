@@ -1,11 +1,12 @@
 #!/usr/bin/python
 
-import sys, os
+import sys, os, glob
 sys.path.append(os.path.abspath('../lib/py'))
 
 from PyQt4 import QtCore, QtGui
 
 import numpy as np
+import h5py
 
 from PlotMatrix import PlotMatrix
 from TimeScrubber import TimeScrubber
@@ -15,11 +16,21 @@ from WillowDataset import WillowDataset
 
 import cPickle
 
+ZRANGE_LOWER_LIMIT = 1e5
+ZRANGE_UPPER_LIMIT= 1e6
 
 class WDX_256_P3(QtGui.QWidget):
 
-    def __init__(self, filename):
+    def __init__(self, filename, impedanceFile):
         QtGui.QWidget.__init__(self)
+
+        self.impedanceFile = impedanceFile
+        if self.impedanceFile:
+            self.impedanceData = h5py.File(impedanceFile, 'r')['impedanceMeasurements'][:]
+            self.goodChannels = []
+            for i,z in enumerate(self.impedanceData):
+                if (z >= ZRANGE_LOWER_LIMIT) and (z < ZRANGE_UPPER_LIMIT):
+                    self.goodChannels.append(i)
 
         self.probe_rows = 64
         self.probe_cols = 4
@@ -58,10 +69,6 @@ class WDX_256_P3(QtGui.QWidget):
 
         self.setLayout(botLayout)
 
-        # window and margin settings
-        self.setWindowTitle('Willow Data Explorer (%s)' % self.dataset.filename)
-        self.resize(1400,800)
-
         self.timeScrubber.timeRangeSelected.connect(self.handleTimeSelection)
         self.probeMap.dragAndDropAccepted.connect(self.handleChanSelection)
 
@@ -71,6 +78,11 @@ class WDX_256_P3(QtGui.QWidget):
             self.chanLedger[i] = None
 
         self.filtered = False
+        self.virtualRef = False
+
+        # window and margin settings
+        self.updateWindowTitle()
+        self.resize(1400,800)
 
         self.timeScrubber.bang()
         self.probeMap.decrement()
@@ -79,6 +91,11 @@ class WDX_256_P3(QtGui.QWidget):
         QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         self.dataset.importSlice(start,stop)
         self.dataset.filterAndCalculateActivitySlice()
+
+        if self.impedanceFile:
+            self.referenceSignal = self.dataset.slice_uv[self.goodChannels,:].mean(axis=0)
+            self.referenceSignal_filtered = self.dataset.slice_filtered[self.goodChannels,:].mean(axis=0)
+
         self.probeMap.setActivity(
             self.dataset.slice_activity[self.channel_map].reshape(
                 (self.probe_rows,self.probe_cols), order='C'))
@@ -100,11 +117,21 @@ class WDX_256_P3(QtGui.QWidget):
     def setPlotChan(self, subplotIndex, willowChan):
         x = np.arange(self.dataset.slice_nsamples)/30.
         if self.filtered:
-            y = self.dataset.slice_filtered[willowChan,:]
+            if self.virtualRef:
+                y = self.dataset.slice_filtered[willowChan,:] - self.referenceSignal_filtered
+            else:
+                y = self.dataset.slice_filtered[willowChan,:]
         else:
-            y = self.dataset.slice_uv[willowChan,:]
+            if self.virtualRef:
+                y = self.dataset.slice_uv[willowChan,:] - self.referenceSignal
+            else:
+                y = self.dataset.slice_uv[willowChan,:]
         self.plotMatrix.setPlotData(subplotIndex, x, y)
-        self.plotMatrix.setPlotTitle(subplotIndex, 'willowChan = %.4d' % willowChan)
+        if self.impedanceFile:
+            self.plotMatrix.setPlotTitle(subplotIndex, 'willowChan = %.4d, Z = %6.2f'
+                                            % (willowChan, self.impedanceData[willowChan]))
+        else:
+            self.plotMatrix.setPlotTitle(subplotIndex, 'willowChan = %.4d' % willowChan)
 
     def updateAllPlots(self):
         """
@@ -114,6 +141,14 @@ class WDX_256_P3(QtGui.QWidget):
         for subplotIndex, willowChan in self.chanLedger.items():
             if willowChan:
                 self.setPlotChan(subplotIndex, willowChan)
+
+    def updateWindowTitle(self):
+        windowTitle = 'Willow Data Explorer (%s)' % self.dataset.filename
+        if self.filtered:
+            windowTitle = windowTitle + ' (filtered)'
+        if self.virtualRef:
+            windowTitle = windowTitle + ' (virtual)'
+        self.setWindowTitle(windowTitle)
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_F11:
@@ -138,9 +173,16 @@ class WDX_256_P3(QtGui.QWidget):
         elif event.key() == QtCore.Qt.Key_F:
             self.filtered = not self.filtered
             self.updateAllPlots()
+            self.updateWindowTitle()
 
         elif event.key() == QtCore.Qt.Key_Home:
             self.plotMatrix.home()
+
+        elif event.key() == QtCore.Qt.Key_V:
+            if self.impedanceFile:
+                self.virtualRef = not self.virtualRef
+                self.updateAllPlots()
+                self.updateWindowTitle()
 
 if __name__=='__main__':
     if len(sys.argv)>1:
@@ -148,7 +190,17 @@ if __name__=='__main__':
     else:
         print 'Usage: $ ./main <filename.h5>'
         sys.exit(1)
+
+    # try to grab impedance file here
+    dataDir = os.path.dirname(filename)
+    impedanceFiles = glob.glob(os.path.join(dataDir, 'impedance_*'))
+    # TODO better handling of multiple impedance files
+    if impedanceFiles:
+        impedanceFile = impedanceFiles[0]
+    else:
+        impedanceFile = None
+
     app = QtGui.QApplication(sys.argv)
-    wdx = WDX_256_P3(filename)
+    wdx = WDX_256_P3(filename, impedanceFile)
     wdx.show()
     sys.exit(app.exec_())
