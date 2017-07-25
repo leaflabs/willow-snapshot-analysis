@@ -291,7 +291,7 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
                         plotItem.plotFiltered(dim=True)
                     else:
                         plotItem.plotRaw(dim=True)
-                plotItem.setTitle(title='Row %d, Col %d, Chan %d, Z = %.2f k' %
+                plotItem.setTitle(title='Row %d, Col %d, Chan %d, Z = %.0f k' %
                                     (plotItem.row, plotItem.col, willowChan, impedance/1000.))
 
     def toggleFiltered(self, filtered):
