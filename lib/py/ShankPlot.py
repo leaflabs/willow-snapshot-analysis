@@ -230,13 +230,9 @@ class ClickablePlotItem(pg.PlotItem):
     def eventFilter(self, target, ev):
         if ev.type() == QtCore.QEvent.GraphicsSceneWheel:
             if ev.modifiers() == QtCore.Qt.ControlModifier:
-                print 'ctrl-wheel'
                 self.axes['bottom']['item'].wheelEvent(ev)
             elif ev.modifiers() == (QtCore.Qt.ControlModifier | QtCore.Qt.ShiftModifier):
-                print 'ctrl-shift-wheel'
                 self.axes['left']['item'].wheelEvent(ev)
-            else:
-                print 'wheel'
             return True
         return False
 
