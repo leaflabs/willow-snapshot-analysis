@@ -92,11 +92,14 @@ class WillowDataset(QtCore.QObject):
         self.limits = [self.timeMin, self.timeMax, self.dataMin, self.dataMax]
         self.isImported = True
 
-    def importSlice(self, s0=0, s1=None):
+    def importSlice(self, s0=0, s1=None, chans=np.arange(NCHAN)):
         # s0, s1 are the first and last sample indices of the slice
         if s1 is None:
             s1 = self.nsamples
-        self.slice_raw = self.dset[s0:s1,:].transpose()
+        chans.sort()    # numpy requires that indexing elements be sorted
+        self.chan2slice_idx = {chan: i for i, chan in enumerate(chans)}
+
+        self.slice_raw = self.dset[s0:s1,chans].transpose()
         # cast to float, center on zero (subtract 2**16/2 = 2**15), and convert to microvolts
         self.slice_uv = (np.array(self.slice_raw, dtype='float')-2**15)*MICROVOLTS_PER_COUNT
         self.slice_s0 = s0
