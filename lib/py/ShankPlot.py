@@ -392,7 +392,7 @@ class ShankPlotWindow(QtGui.QWidget):
         layout.addWidget(self.scrollZoomPanel)
         self.setLayout(layout)
 
-        self.setWindowTitle('Shank %d (%s)' % (shank, self.dataset.filename))
+        self.setWindowTitle('Shank %d (%s)' % (shank, dataset.filename))
         self.setWindowIcon(QtGui.QIcon('../lib/img/leaflabs_logo.png'))
         self.showMaximized()
 
