@@ -110,6 +110,8 @@ class WillowDataset(QtCore.QObject):
 
     def filterSlice(self):
         self.slice_filtered = dsp.lfilter(FILTER_B, FILTER_A, self.slice_uv, axis=1)
+        self.slice_filtered_min = np.min(self.slice_filtered)
+        self.slice_filtered_max = np.max(self.slice_filtered)
 
     def filterAndCalculateActivitySlice(self):
         # (multi) processing
