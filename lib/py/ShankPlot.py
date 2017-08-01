@@ -214,19 +214,19 @@ class ClickablePlotItem(pg.PlotItem):
         self.spikeScopeWindow = SpikeScopeWindow(self.dataset, self.chan)
         self.spikeScopeWindow.show()
 
-    def plotRaw(self, dim=False):
+    def plotRaw(self):
         self.clear()
-        pen = 0.2 if dim else (143,219,144)
         self.plot(x=self.dataset.time_ms,
-                  y=self.dataset.slice_uv[self.slice_idx,:], pen=pen)
+                  y=self.dataset.slice_uv[self.slice_idx,:],
+                  pen={'color': (143,219,144), 'width': 0.2})
         self.setYRange(self.dataset.slice_min,
                        self.dataset.slice_max, padding=0.9)
 
-    def plotFiltered(self, dim=False):
+    def plotFiltered(self):
         self.clear()
-        pen = 0.2 if dim else (143,219,144)
         self.plot(x=self.dataset.time_ms,
-                  y=self.dataset.slice_filtered[self.slice_idx], pen=pen)
+                  y=self.dataset.slice_filtered[self.slice_idx],
+                  pen={'color': (143,219,144), 'width': 0.2})
         self.setYRange(self.dataset.slice_filtered_min,
                        self.dataset.slice_filtered_max, padding=0.9)
 
@@ -287,9 +287,9 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
                 impedance = impedanceMap[willowChan]
                 if ((impedance > 1e6) or (impedance < 1e5)): # tweak this range as neeeded
                     if self.filtered:
-                        plotItem.plotFiltered(dim=True)
+                        plotItem.plotFiltered()
                     else:
-                        plotItem.plotRaw(dim=True)
+                        plotItem.plotRaw()
                 plotItem.setTitle(title='Row %d, Col %d, Chan %d, Z = %.0f k' %
                                     (plotItem.row, plotItem.col, willowChan, impedance/1000.))
 
