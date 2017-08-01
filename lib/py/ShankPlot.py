@@ -198,6 +198,7 @@ class ClickablePlotItem(pg.PlotItem):
 
         self.dataset = dataset
         self.chan = chan
+        self.slice_idx = self.dataset.chan2slice_idx[chan]
         self.row = row
         self.col = col
         self.getAxis('left').setStyle(textFillLimits=[(3,0.05)], tickLength=5)
@@ -216,16 +217,18 @@ class ClickablePlotItem(pg.PlotItem):
     def plotRaw(self, dim=False):
         self.clear()
         pen = 0.2 if dim else (143,219,144)
-        self.plot(x=self.dataset.time_ms, y=self.dataset.data_uv[self.chan,:],
-                    pen=pen)
-        self.setYRange(self.dataset.dataMin, self.dataset.dataMax, padding=0.9)
+        self.plot(x=self.dataset.time_ms,
+                  y=self.dataset.slice_uv[self.slice_idx,:], pen=pen)
+        self.setYRange(self.dataset.slice_min,
+                       self.dataset.slice_max, padding=0.9)
 
     def plotFiltered(self, dim=False):
         self.clear()
         pen = 0.2 if dim else (143,219,144)
-        self.plot(x=self.dataset.time_ms, y=self.dataset.data_uv_filtered[self.chan,:],
-                    pen=pen)
-        self.setYRange(self.dataset.dataMin_filtered, self.dataset.dataMax_filtered, padding=0.9)
+        self.plot(x=self.dataset.time_ms,
+                  y=self.dataset.slice_filtered[self.slice_idx], pen=pen)
+        self.setYRange(self.dataset.slice_filtered_min,
+                       self.dataset.slice_filtered_max, padding=0.9)
 
     def eventFilter(self, target, ev):
         if ev.type() == QtCore.QEvent.GraphicsSceneWheel:
@@ -329,8 +332,8 @@ class MultiPlotWidget(pg.GraphicsLayoutWidget):
 
     def setDefaultRange(self, filtered=True):
         self.setDefaultHeight()
-        dataMin = self.dataset.dataMin_filtered if filtered else self.dataset.dataMin
-        dataMax = self.dataset.dataMax_filtered if filtered else self.dataset.dataMax
+        dataMin = self.dataset.slice_filtered_min if filtered else self.dataset.slice_min
+        dataMax = self.dataset.slice_filtered_max if filtered else self.dataset.slice_max
         if self.locked:
             self.plotItems[0].setXRange(self.dataset.timeMin, self.dataset.timeMax)
             self.plotItems[0].setYRange(dataMin, dataMax, padding=0.9)
@@ -369,11 +372,8 @@ class ShankPlotWindow(QtGui.QWidget):
         shankChannels = []
         for item in probeMap:
             if item[0] == shank: shankChannels.append(probeMap[item])
-        dataset.filterData(channelList=shankChannels)
-        dataset.dataMin = np.min(dataset.data_uv[shankChannels,:])
-        dataset.dataMax = np.max(dataset.data_uv[shankChannels,:])
-        dataset.dataMin_filtered = np.min(dataset.data_uv_filtered[shankChannels,:])
-        dataset.dataMax_filtered = np.max(dataset.data_uv_filtered[shankChannels,:])
+        dataset.importSlice(chans=shankChannels)
+        dataset.filterSlice()
 
         self.multiPlotWidget = MultiPlotWidget(dataset, probeMap, shank, impedanceFile)
 
@@ -416,7 +416,6 @@ if __name__=='__main__':
             shank = int(sys.argv[3])
 
     dataset = WillowDataset(snapshot_filename)
-    dataset.importData()
 
     probeMap = pickle.load(open(probeMap_filename, 'rb')) # (shank, col, row) : willowChan
 
