@@ -211,7 +211,7 @@ class ClickablePlotItem(pg.PlotItem):
             axesDict['item'].installEventFilter(self)
 
     def mouseDoubleClickEvent(self, event):
-        self.spikeScopeWindow = SpikeScopeWindow(self.dataset, self.chan)
+        self.spikeScopeWindow = SpikeScopeWindow(self.dataset.filename, self.chan)
         self.spikeScopeWindow.show()
 
     def plotRaw(self):
