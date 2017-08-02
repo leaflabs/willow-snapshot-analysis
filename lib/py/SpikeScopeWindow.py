@@ -13,13 +13,15 @@ from WillowDataset import WillowDataset
 
 class SpikeScopeWindow(QtGui.QWidget):
 
-    def __init__(self, dataset, willowChan):
+    def __init__(self, filename, willowChan):
         QtGui.QWidget.__init__(self)
-        self.dataset = dataset
+        self.dataset = WillowDataset(filename)
         self.chan = willowChan
 
-        dataset.filterData(channelList=[self.chan])
-        dataset.detectSpikes(channelList=[self.chan], thresh='auto')
+        self.dataset.importSlice(chans=[self.chan])
+        self.dataset.filterSlice()
+        self.dataset.detectSpikesSlice()
+        self.slice_idx = self.dataset.chan2slice_idx[self.chan]
 
         self.spikeLines = None
         self.hline = None
@@ -32,8 +34,8 @@ class SpikeScopeWindow(QtGui.QWidget):
         self.layout.addWidget(self.toolbar)
         self.setLayout(self.layout)
 
-        self.plotData()
         self.refreshSpikes()
+        self.plotData()
 
         self.setWindowTitle('Spike Scope: Channel %d (%s)' % (self.chan,
                             self.dataset.filename))
@@ -42,7 +44,7 @@ class SpikeScopeWindow(QtGui.QWidget):
     def on_click(self, event):
         if (event.inaxes == self.axes_chanPlot):
             if event.button == 2: # middle-click
-                self.refreshSpikes(thresh='auto')
+                self.refreshSpikes()
             elif event.button == 3: # right-click
                 self.refreshSpikes(thresh=event.ydata)
 
@@ -70,34 +72,33 @@ class SpikeScopeWindow(QtGui.QWidget):
     def plotData(self):
         self.axes_chanPlot.set_axis_bgcolor('k')
         self.axes_chanPlot.plot(self.dataset.time_ms,
-                    self.dataset.data_uv_filtered[self.chan,:], color='#8fdb90')
+                    self.dataset.slice_filtered[self.slice_idx,:], color='#8fdb90')
         self.canvas.draw()
 
-    def refreshSpikes(self, thresh='auto'):
+    def refreshSpikes(self, thresh=None):
         if self.spikeLines:
             self.spikeLines.remove()
         if self.hline:
             self.hline.remove()
-        self.dataset.detectSpikes(channelList=[self.chan], thresh=thresh)
-        self.thresh = self.dataset.spikeThresholds[self.chan]
+        self.dataset.detectSpikesSlice(thresh=thresh)
+        spike = self.dataset.spikes[self.slice_idx]
         xlim = self.axes_chanPlot.get_xlim()
         ylim = self.axes_chanPlot.get_ylim()
-        self.spikeLines = self.axes_chanPlot.vlines(self.dataset.spikeTimes[self.chan],
+        self.spikeLines = self.axes_chanPlot.vlines(spike['times'],
                                     ylim[0], ylim[1], colors='#9933ff') 
-        self.hline, = self.axes_chanPlot.plot(xlim, 2*[self.thresh], color='y')
+        self.hline, = self.axes_chanPlot.plot(xlim, 2*[spike['thresh']], color='y')
         self.doSpikeScope()
 
     def doSpikeScope(self):
         self.axes_spikeScope.clear()
+        spike = self.dataset.spikes[self.slice_idx]
         self.axes_spikeScope.set_title('Spike Scope: %d Threshold Crossings'
-                                        % self.dataset.nspikes[self.chan],
-                                        fontsize=12)
-        indices = self.dataset.spikeIndices[self.chan]
-        for i in indices:
+                                        % spike['nspikes'], fontsize=12)
+        for i in spike['indices']:
             try:
                 tmpRange = np.arange(i-30, i+30, dtype='int')
                 self.axes_spikeScope.plot((tmpRange-i)/30.,
-                    self.dataset.data_uv_filtered[self.chan, tmpRange])
+                    self.dataset.slice_filtered[self.slice_idx, tmpRange])
             except IndexError:
                 pass # ignore spikes that are within 30 samples of the data limits
             self.axes_spikeScope.set_xlabel('ms')
@@ -108,8 +109,6 @@ if __name__=='__main__':
     app = QtGui.QApplication(sys.argv)
     filename = str(QtGui.QFileDialog.getOpenFileName(None, 'Select Data File', '/home/chrono/leafyles/neuro'))
     if filename:
-        dataset = WillowDataset(filename)
-        dataset.importData()
-        spikeScopeWindow = SpikeScopeWindow(dataset, 166)
+        spikeScopeWindow = SpikeScopeWindow(filename, 166)
         spikeScopeWindow.show()
         app.exec_()
