@@ -146,6 +146,58 @@ class WillowDataset(QtCore.QObject):
             cursor += nchan_subslice
         self.sliceBeenFiltered = True
 
+    def detectSpikesSlice(self, thresh=None):
+        if not self.sliceImported:
+            raise WillowProcessingError('Import slice before detecting spikes in it.')
+        if not self.sliceBeenFiltered:
+            # default to multiprocessing filtering option, on the assumption
+            # that it's generally faster
+            self.filterAndCalculateActivitySlice()
+        self.spikes = {}
+        nslice_chans = self.slice_filtered.shape[0]
+        for slice_chan in xrange(nslice_chans):
+            chan_data = self.slice_filtered[slice_chan,:]
+            if thresh is None:
+                # constants from JP Kinney
+                thresh = -4.5 * np.median(np.abs(chan_data))/0.6745
+            indices, nspikes = self.spikeThreshold(chan_data, thresh)
+            times = self.time_ms[indices]
+            spike_data = {'thresh': thresh, 'indices': indices,
+                          'nspikes': nspikes, 'times': times}
+            self.spikes[slice_chan] = spike_data
+
+    def spikeThreshold(self, indata, thresh):
+        # helper function: finds the place where a possible spike is maximal
+        def analyzeSpike(spike_data):
+            numpified = np.array(spike_data)
+            maxind = np.argmax(numpified[:,1])
+            return spike_data[maxind][0]
+
+        # next two lines make the algorithm agnostic of polarity (pos/neg)
+        polarity = -1. if (thresh < 0) else 1
+        thresh = abs(thresh)
+        # init buffers and counters
+        recording = False
+        spike_data = []
+        stats = []
+        nspikes = 0
+        # run over the data
+        for i, samp in enumerate(polarity*indata):
+            if not recording:
+                if samp >= thresh:
+                    spike_data.append((i, samp))
+                    recording = True
+            else:
+                if samp < thresh:
+                    stats.append(analyzeSpike(spike_data))
+                    nspikes += 1
+                    spike_data = []
+                    recording = False
+                else:
+                    spike_data.append((i, samp))
+
+        return stats, nspikes
+
     def applyCalibration(self, calibrationFile):
         self.calibrationFile = calibrationFile
         self.impedance = np.load(str(self.calibrationFile))
