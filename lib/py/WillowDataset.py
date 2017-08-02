@@ -55,6 +55,9 @@ class PipedProcess(mp.Process):
 class WillowImportError(Exception):
     pass
 
+class WillowProcessingError(Exception):
+    pass
+
 class WillowDataset(QtCore.QObject):
     """
     Willow Dataset Container Class
@@ -81,6 +84,8 @@ class WillowDataset(QtCore.QObject):
         self.chipList = [i for i in range(NCHIPS) if (chipAliveMask & (0x1 << i))]
 
         self.isImported = False
+        self.sliceImported = False
+        self.sliceBeenFiltered = False
 
         self.ncpu = mp.cpu_count()
 
@@ -107,14 +112,20 @@ class WillowDataset(QtCore.QObject):
         self.slice_nsamples = s1 - s0
         self.slice_min = np.min(self.slice_uv)
         self.slice_max = np.max(self.slice_uv)
+        self.sliceImported = True
 
     def filterSlice(self):
+        if not self.sliceImported:
+            raise WillowProcessingError('Import slice before filtering it.')
         self.slice_filtered = dsp.lfilter(FILTER_B, FILTER_A, self.slice_uv, axis=1)
         self.slice_filtered_min = np.min(self.slice_filtered)
         self.slice_filtered_max = np.max(self.slice_filtered)
+        self.sliceBeenFiltered = True
 
     def filterAndCalculateActivitySlice(self):
         # (multi) processing
+        if not self.sliceImported:
+            raise WillowProcessingError('Import slice before filtering it.')
         self.slice_filtered = np.zeros(self.slice_uv.shape)
         nslice_chans = self.slice_uv.shape[0]
         self.slice_activity = np.zeros(nslice_chans)
@@ -133,6 +144,7 @@ class WillowDataset(QtCore.QObject):
             self.slice_activity[cursor:(cursor+nchan_subslice)] = activity_subslice
             self.slice_filtered[cursor:(cursor+nchan_subslice),:] = filteredData_subslice
             cursor += nchan_subslice
+        self.sliceBeenFiltered = True
 
     def applyCalibration(self, calibrationFile):
         self.calibrationFile = calibrationFile
