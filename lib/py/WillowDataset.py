@@ -115,8 +115,9 @@ class WillowDataset(QtCore.QObject):
 
     def filterAndCalculateActivitySlice(self):
         # (multi) processing
-        self.slice_activity = np.zeros(NCHAN)
-        self.slice_filtered = np.zeros((NCHAN, self.slice_nsamples))
+        self.slice_filtered = np.zeros(self.slice_uv.shape)
+        nslice_chans = self.slice_uv.shape[0]
+        self.slice_activity = np.zeros(nslice_chans)
         procs = []
         for subSlice in MPGenerator(self.slice_uv, self.ncpu):
             rpipe, wpipe = mp.Pipe()
