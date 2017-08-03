@@ -92,7 +92,7 @@ class WDX_256_P3(QtGui.QWidget):
         self.dataset.importSlice(start,stop)
         self.dataset.filterAndCalculateActivitySlice()
 
-        if self.impedanceFile:
+        if self.impedanceFile and self.goodChannels:
             self.referenceSignal = self.dataset.slice_uv[self.goodChannels,:].mean(axis=0)
             self.referenceSignal_filtered = self.dataset.slice_filtered[self.goodChannels,:].mean(axis=0)
 
@@ -179,7 +179,7 @@ class WDX_256_P3(QtGui.QWidget):
             self.plotMatrix.home()
 
         elif event.key() == QtCore.Qt.Key_V:
-            if self.impedanceFile:
+            if self.impedanceFile and self.goodChannels:
                 self.virtualRef = not self.virtualRef
                 self.updateAllPlots()
                 self.updateWindowTitle()
