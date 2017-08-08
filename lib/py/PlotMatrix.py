@@ -77,6 +77,10 @@ class PlotMatrix(pg.GraphicsLayoutWidget):
         plotItem = self.plotItems[subplotIndex]
         plotItem.setData(x, y)
 
+    def setPlotDoubleClickHandler(self, subplotIndex, double_click_handler):
+        plotItem = self.plotItems[subplotIndex]
+        plotItem.mouseDoubleClickEvent = double_click_handler
+
     def setPlotTitle(self, subplotIndex, title):
         plotItem = self.plotItems[subplotIndex]
         plotItem.setTitle(title=title)
