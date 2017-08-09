@@ -90,7 +90,7 @@ class WDX_256_P3(QtGui.QWidget):
 
     def handleTimeSelection(self, start, stop):
         QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        self.dataset.importSlice(start,stop)
+        self.dataset.importSlice(start,stop, chans=np.arange(256))
         self.dataset.filterAndCalculateActivitySlice()
 
         if self.impedanceFile and self.goodChannels:
