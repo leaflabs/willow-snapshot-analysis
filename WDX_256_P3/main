@@ -13,7 +13,7 @@ from PlotMatrix import PlotMatrix
 from TimeScrubber import TimeScrubber
 from ProbeMap256_P3 import ProbeMap256_P3
 
-from WillowDataset import WillowDataset
+from willowephys import WillowDataset
 
 import cPickle
 

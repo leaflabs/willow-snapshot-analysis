@@ -10,7 +10,7 @@ from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 
 sys.path.append('../lib/py')
-from WillowDataset import WillowDataset
+from willowephys import WillowDataset
 
 #### config
 

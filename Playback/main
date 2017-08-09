@@ -21,7 +21,7 @@ from vispy.visuals.collections import SegmentCollection
 from filtering import FilterPlotWindow
 
 sys.path.append('../lib/py')
-from WillowDataset import WillowDataset
+from willowephys import WillowDataset
 
 nrows = 8
 ncols = 4

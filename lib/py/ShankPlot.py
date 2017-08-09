@@ -13,7 +13,7 @@ import numpy as np
 import pickle, glob
 
 from SpikeScopeWindow import SpikeScopeWindow
-from WillowDataset import WillowDataset
+from willowephys import WillowDataset
 
 ################
 
