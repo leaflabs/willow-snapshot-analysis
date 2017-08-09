@@ -1,9 +1,8 @@
 import numpy as np
 from scipy import signal as dsp
-import multiprocessing as mp
+import sharedmem
 import h5py
 from PyQt4 import QtCore
-
 
 # general parameters
 NCHAN = 1024
@@ -24,33 +23,6 @@ FILTER_B, FILTER_A = dsp.butter(FILT_ORDER,
 # activity calculation parameters
 THRESH_SCALE = -4.5/0.6745 # from JP Kinney
 ACTIVITY_SCALE = 100. # arbitrary scaling to get activity approximately normalized to [0,1]
-
-def filterAndCalculateActivity(data, wpipe):
-    # works on uv data
-    nchan, nsamp = data.shape
-    filteredData = dsp.lfilter(FILTER_B, FILTER_A, data, axis=1)
-    wpipe.send(filteredData)
-    threshold = np.median(np.abs(filteredData), axis=1)*THRESH_SCALE
-    activity = np.zeros(nchan)
-    for i in range(nchan):
-        activity[i] = np.sum((filteredData[i,:] < threshold[i])) * ACTIVITY_SCALE / float(nsamp)
-    wpipe.send(activity)
-
-
-# the following two functions facilitate multiprocessing for the activity calc
-
-def MPGenerator(dataSlice, nproc):
-    nchan = dataSlice.shape[0]
-    nchanPerProc = nchan // nproc
-    splitter = np.arange(1,nproc) * nchanPerProc
-    for subSlice in np.split(dataSlice, splitter):
-        yield subSlice
-
-class PipedProcess(mp.Process):
-    def __init__(self, rpipe, **kwargs):
-        mp.Process.__init__(self, **kwargs)
-        self.rpipe = rpipe
-
 
 class WillowImportError(Exception):
     pass
@@ -87,11 +59,14 @@ class WillowDataset(QtCore.QObject):
         self.sliceImported = False
         self.sliceBeenFiltered = False
 
-        self.ncpu = mp.cpu_count()
+        self.ncpu = sharedmem.cpu_count()
+
+        self.slice_nsamples = 0
+        self.slice_nchans = None
 
     def importData(self):
         self.data_raw = self.dset[:].transpose()
-        self.data_uv = (np.array(self.data_raw, dtype='float')-2**15)*MICROVOLTS_PER_COUNT
+        self.data_uv = (np.array(self.data_raw, dtype=np.float)-2**15)*MICROVOLTS_PER_COUNT
         self.dataMin = np.min(self.data_uv)
         self.dataMax = np.max(self.data_uv)
         self.limits = [self.timeMin, self.timeMax, self.dataMin, self.dataMax]
@@ -104,12 +79,17 @@ class WillowDataset(QtCore.QObject):
         chans.sort()    # numpy requires that indexing elements be sorted
         self.chan2slice_idx = {chan: i for i, chan in enumerate(chans)}
 
-        self.slice_raw = self.dset[s0:s1,chans].transpose()
         # cast to float, center on zero (subtract 2**16/2 = 2**15), and convert to microvolts
-        self.slice_uv = (np.array(self.slice_raw, dtype='float')-2**15)*MICROVOLTS_PER_COUNT
+        self.slice_uv = np.asarray(((self.dset[s0:s1,chans].astype(np.float32)-2**15)*MICROVOLTS_PER_COUNT).transpose())
         self.slice_s0 = s0
         self.slice_s1 = s1
-        self.slice_nsamples = s1 - s0
+        if (s1 - s0) != self.slice_nsamples:
+            self.slice_nsamples = s1 - s0
+            self.slice_filtered = sharedmem.empty((len(chans), self.slice_nsamples),
+                                                  dtype=np.float32)
+        if len(chans) != self.slice_nchans:
+            self.slice_nchans = len(chans)
+            self.slice_activity = sharedmem.empty(self.slice_nchans, dtype=np.float32)
         self.slice_min = np.min(self.slice_uv)
         self.slice_max = np.max(self.slice_uv)
         self.sliceImported = True
@@ -123,27 +103,19 @@ class WillowDataset(QtCore.QObject):
         self.sliceBeenFiltered = True
 
     def filterAndCalculateActivitySlice(self):
-        # (multi) processing
         if not self.sliceImported:
             raise WillowProcessingError('Import slice before filtering it.')
-        self.slice_filtered = np.zeros(self.slice_uv.shape)
-        nslice_chans = self.slice_uv.shape[0]
-        self.slice_activity = np.zeros(nslice_chans)
-        procs = []
-        for subSlice in MPGenerator(self.slice_uv, self.ncpu):
-            rpipe, wpipe = mp.Pipe()
-            procs.append(PipedProcess(rpipe, target=filterAndCalculateActivity,
-                            args=(subSlice, wpipe)))
-        for pp in procs: pp.start()
-        cursor = 0
-        for i, pp in enumerate(procs):
-            filteredData_subslice = pp.rpipe.recv()
-            pp.join()
-            activity_subslice = pp.rpipe.recv()
-            nchan_subslice = activity_subslice.shape[0]
-            self.slice_activity[cursor:(cursor+nchan_subslice)] = activity_subslice
-            self.slice_filtered[cursor:(cursor+nchan_subslice),:] = filteredData_subslice
-            cursor += nchan_subslice
+        with sharedmem.MapReduce() as pool:
+            nchan = self.slice_nchans // self.ncpu
+            def work(i):
+                chans = slice(i * nchan, (i + 1) * nchan)
+                self.slice_filtered[chans] = dsp.lfilter(FILTER_B, FILTER_A, self.slice_uv[chans], axis=1)
+                threshold = np.broadcast_to(
+                    np.median(np.abs(self.slice_filtered[chans]), axis=1)*THRESH_SCALE,
+                    (self.slice_nsamples, nchan)).transpose()
+                self.slice_activity[chans] = np.sum(
+                    (self.slice_filtered[chans] < threshold), axis=1) * ACTIVITY_SCALE / float(self.slice_nsamples)
+            pool.map(work, range(0, self.ncpu))
         self.sliceBeenFiltered = True
 
     def detectSpikesSlice(self, thresh=None):
@@ -207,4 +179,3 @@ class WillowDataset(QtCore.QObject):
             if imp>0:
                 self.data_cal[i,:] = self.data_uv[i,:]*imp
             # else just leave it at zero
-
