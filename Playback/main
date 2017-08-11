@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python2
 """ This widget is very similar to willow-streaming-analysis's Chipstream widget.
 It presents an animation that "plays back" pre-recorded Willow snapshots or
 experiments as though the data were still streaming live. """
