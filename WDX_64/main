@@ -9,7 +9,7 @@ import numpy as np
 import h5py
 
 from SpikeScopeWindow import SpikeScopeWindow
-from PlotMatrix import PlotMatrix
+from willowephys import PlotMatrix
 from TimeScrubber import TimeScrubber
 from ProbeMap64 import ProbeMap64
 
