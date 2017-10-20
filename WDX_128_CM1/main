@@ -1,0 +1,207 @@
+#!/usr/bin/env python2
+
+import sys, os, glob
+sys.path.append(os.path.abspath('../lib/py'))
+
+from PyQt4 import QtCore, QtGui
+
+import numpy as np
+import h5py
+
+from SpikeScopeWindow import SpikeScopeWindow
+from willowephys import PlotMatrix
+from TimeScrubber import TimeScrubber
+from ProbeMap128_CM1 import ProbeMap128_CM1
+
+from willowephys import WillowDataset
+
+import cPickle
+
+import pprint
+
+ZRANGE_LOWER_LIMIT = 1e5
+ZRANGE_UPPER_LIMIT = 1e6
+
+class WDX(QtGui.QWidget):
+
+    def __init__(self, filename, impedanceFile):
+        QtGui.QWidget.__init__(self)
+
+        self.impedanceFile = impedanceFile
+        if self.impedanceFile:
+            self.impedanceData = h5py.File(impedanceFile, 'r')['impedanceMeasurements'][:]
+            self.goodChannels = []
+            for i, z in enumerate(self.impedanceData):
+                if (z >= ZRANGE_LOWER_LIMIT) and (z < ZRANGE_UPPER_LIMIT):
+                    self.goodChannels.append(i)
+
+        self.probeMap_dict = cPickle.load(open('probeMap_128_CM1_level2.p', 'rb'))
+        pprint.pprint(self.probeMap_dict)
+        self.channel_map = []
+        for row in range(64):
+            for col in range(2):
+                self.channel_map.append(self.probeMap_dict[0, row, 2 * col + (row & 1)])
+        print "Channel map shape: {0}".format(np.array(self.channel_map).shape)
+
+        self.dataset = WillowDataset(filename)
+        if self.dataset.nsamples > 300000:
+            initRange = [0,30000]
+        else:
+            initRange = [0,self.dataset.nsamples/10]
+
+        # widgets
+        self.probeMap = ProbeMap128_CM1(300, "DL1_5x_mod.jpg")
+
+        self.timeScrubber = TimeScrubber(self.dataset.nsamples, initRange=initRange)
+
+        self.plotMatrix = PlotMatrix(4, 2)
+        self.plotMatrix.setAllTitles('willowChan = xxxx')
+
+        # layout
+        topLayout = QtGui.QHBoxLayout()
+        topLayout.addWidget(self.probeMap)
+        topLayout.addWidget(self.timeScrubber)
+
+        botLayout = QtGui.QVBoxLayout()
+        botLayout.addLayout(topLayout)
+        botLayout.addWidget(self.plotMatrix)
+
+        self.setLayout(botLayout)
+
+        self.timeScrubber.timeRangeSelected.connect(self.handleTimeSelection)
+        self.probeMap.dragAndDropAccepted.connect(self.handleChanSelection)
+
+        # this is used to keep track of which channels (if any) are on which subplots
+        self.chanLedger = {}
+        for i in range(8):
+            self.chanLedger[i] = None
+
+        self.filtered = False
+        self.virtualRef = False
+        # window and margin settings
+        self.updateWindowTitle()
+        self.resize(1400,800)
+
+
+        self.timeScrubber.bang()
+        self.probeMap.decrement()
+
+    def handleTimeSelection(self, start, stop):
+        QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        self.dataset.importSlice(start,stop)
+        self.dataset.filterAndCalculateActivitySlice()
+
+        if self.impedanceFile and self.goodChannels:
+            self.referenceSignal = self.dataset.slice_uv[self.goodChannels,:].mean(axis=0)
+            self.referenceSignal_filtered = self.dataset.slice_filtered[self.goodChannels,:].mean(axis=0)
+
+        self.probeMap.setActivity(self.dataset.slice_activity[self.channel_map].reshape((64,2), order='C'))
+        self.plotMatrix.setXRange(0, self.dataset.slice_nsamples/30.)
+        if self.filtered:
+            self.plotMatrix.setYRange(self.dataset.slice_min, self.dataset.slice_max)
+        else:
+            self.plotMatrix.setYRange(self.dataset.slice_min, self.dataset.slice_max)
+        self.updateAllPlots()
+        QtGui.QApplication.restoreOverrideCursor()
+
+    def handleChanSelection(self, shank, row, column):
+        for i in range(4):
+            for j in range(2):
+                willowChan = self.probeMap_dict[shank, row + i, 2 * (column + j) + ((row + i) & 1)]
+                self.setPlotChan(i * 2 + j, willowChan)
+                self.chanLedger[i * 2 + j] = willowChan
+
+    def setPlotChan(self, subplotIndex, willowChan):
+        x = np.arange(self.dataset.slice_nsamples)/30.
+        if self.filtered:
+            if self.virtualRef:
+                y = self.dataset.slice_filtered[willowChan,:] = self.referenceSignal_filtered
+            else:
+                y = self.dataset.slice_filtered[willowChan,:]
+        else:
+            if self.virtualRef:
+                y = self.dataset.slice_uv[willowChan,:] - self.referenceSignal
+            else:
+                y = self.dataset.slice_uv[willowChan,:]
+        self.plotMatrix.setPlotData(subplotIndex, x, y)
+        def double_click_handler(owner):
+            owner.spikeScopeWindow = SpikeScopeWindow(self.dataset.filename, willowChan)
+            owner.spikeScopeWindow.show()
+        self.plotMatrix.setPlotDoubleClickHandler(subplotIndex, double_click_handler)
+        if self.impedanceFile:
+            self.plotMatrix.setPlotTitle(subplotIndex, 'willowChan = %.4d, Z = %6.2f'
+                                            % (willowChan, self.impedanceData[willowChan]))
+        else:
+            self.plotMatrix.setPlotTitle(subplotIndex, 'willowChan = %.4d' % willowChan)
+
+    def updateAllPlots(self):
+        """
+        call this after updating the time slice, or filtered state.
+        to set a single plot's channel use setPlotChan instead
+        """
+        for subplotIndex, willowChan in self.chanLedger.items():
+            if willowChan:
+                self.setPlotChan(subplotIndex, willowChan)
+
+    def updateWindowTitle(self):
+        windowTitle = 'Willow Data Explorer (%s)' % self.dataset.filename
+        if self.filtered:
+            windowTitle = windowTitle + ' (filtered)'
+        if self.virtualRef:
+            windowTitle = windowTitle + ' (virtual)'
+        self.setWindowTitle(windowTitle)
+
+    def keyPressEvent(self, event):
+        if event.key() == QtCore.Qt.Key_F11:
+            if self.windowState() & QtCore.Qt.WindowFullScreen:
+                self.showNormal()
+            else:
+                self.showFullScreen()
+
+        elif event.key() == QtCore.Qt.Key_Up:
+            self.probeMap.decrement()
+        elif event.key() == QtCore.Qt.Key_Down:
+            self.probeMap.increment()
+
+        elif event.key() == QtCore.Qt.Key_Right:
+            self.timeScrubber.increment()
+        elif event.key() == QtCore.Qt.Key_Left:
+            self.timeScrubber.decrement()
+
+        elif event.key() == QtCore.Qt.Key_Escape:
+                self.showNormal()
+
+        elif event.key() == QtCore.Qt.Key_F:
+            self.filtered = not self.filtered
+            self.updateAllPlots()
+            self.updateWindowTitle()
+
+        elif event.key() == QtCore.Qt.Key_Home:
+            self.plotMatrix.home()
+
+        elif event.key() == QtCore.Qt.Key_V:
+            if self.impedanceFile and self.goodChannels:
+                self.virtualRef = not self.virtualRef
+                self.updateAllPlots()
+                self.updateWindowTitle()
+
+
+if __name__=='__main__':
+    if len(sys.argv)>1:
+        filename = sys.argv[1]
+    else:
+        print 'Usage: $ ./main <filename.h5>'
+        sys.exit(1)
+
+    # try to grab impedance file here
+    dataDir = os.path.dirname(filename)
+    impedanceFiles = glob.glob(os.path.join(dataDir, 'impedance_*'))
+    # TODO better handling of multiple impedance files
+    if impedanceFiles:
+        impedanceFile = impedanceFiles[0]
+    else:
+        impedanceFile = None
+    app = QtGui.QApplication(sys.argv)
+    wdx = WDX(filename, impedanceFile)
+    wdx.show()
+    sys.exit(app.exec_())
