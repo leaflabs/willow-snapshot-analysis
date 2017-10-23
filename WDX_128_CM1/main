@@ -36,12 +36,10 @@ class WDX(QtGui.QWidget):
                     self.goodChannels.append(i)
 
         self.probeMap_dict = cPickle.load(open('probeMap_128_CM1_level2.p', 'rb'))
-        pprint.pprint(self.probeMap_dict)
         self.channel_map = []
         for row in range(64):
             for col in range(2):
                 self.channel_map.append(self.probeMap_dict[0, row, 2 * col + (row & 1)])
-        print "Channel map shape: {0}".format(np.array(self.channel_map).shape)
 
         self.dataset = WillowDataset(filename)
         if self.dataset.nsamples > 300000:
